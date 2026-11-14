@@ -28,6 +28,14 @@ final class SessionStore: ObservableObject {
     @Published private(set) var hasBoardToken: Bool = false
     @Published private(set) var hasSessionCookie: Bool = false
 
+    /// Fallback for a device where the Keychain refuses the write — an
+    /// unsigned simulator build has no keychain entitlement, and the board
+    /// key is then held in memory for the life of the process instead of
+    /// being persisted. On a signed device build the Keychain works and
+    /// this stays nil.
+    private var inMemoryBoardToken: String?
+    private var keychainWriteStatus: OSStatus = errSecSuccess
+
     init() {
         // Credentials and settings can arrive three ways: the environment
         // (used by the screenshot run), the launch arguments, or what the
@@ -57,11 +65,15 @@ final class SessionStore: ObservableObject {
             ?? bootstrap?["boardToken"],
            !launchToken.isEmpty,
            Keychain.read(service: service, account: Defaults.boardToken) == nil {
-            Keychain.write(launchToken, service: service, account: Defaults.boardToken)
+            let status = Keychain.write(launchToken, service: service, account: Defaults.boardToken)
+            keychainWriteStatus = status
+            if status != errSecSuccess {
+                inMemoryBoardToken = launchToken
+            }
         }
         if let base = bootstrap?["baseURL"], !base.isEmpty { baseURL = base }
         if let company = bootstrap?["companyId"], !company.isEmpty { companyId = company }
-        hasBoardToken = Keychain.read(service: service, account: Defaults.boardToken) != nil
+        hasBoardToken = boardToken != nil
         hasSessionCookie = Keychain.read(service: service, account: Defaults.sessionCookie) != nil
 
         writeLaunchDiagnostic()
@@ -80,6 +92,9 @@ final class SessionStore: ObservableObject {
             "initialTab": SessionStore.launchTab,
             "environmentKeys": environment.keys.filter { $0.hasPrefix("RELAY_") }.sorted(),
             "environmentHasToken": environment["RELAY_BOARD_TOKEN"] != nil,
+            "keychainWriteStatus": Int(keychainWriteStatus),
+            "keychainWriteOK": keychainWriteStatus == errSecSuccess,
+            "tokenHeldInMemory": inMemoryBoardToken != nil,
             "bootstrapFileFound": SessionStore.bootstrapConfig() != nil,
             "timestamp": ISO8601DateFormatter().string(from: Date()),
         ]
@@ -123,7 +138,7 @@ final class SessionStore: ObservableObject {
     }
 
     var boardToken: String? {
-        Keychain.read(service: service, account: Defaults.boardToken)
+        Keychain.read(service: service, account: Defaults.boardToken) ?? inMemoryBoardToken
     }
 
     var sessionCookie: String? {
@@ -141,9 +156,12 @@ final class SessionStore: ObservableObject {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             Keychain.delete(service: service, account: Defaults.boardToken)
+            inMemoryBoardToken = nil
             hasBoardToken = false
         } else {
-            Keychain.write(trimmed, service: service, account: Defaults.boardToken)
+            let status = Keychain.write(trimmed, service: service, account: Defaults.boardToken)
+            keychainWriteStatus = status
+            inMemoryBoardToken = status == errSecSuccess ? nil : trimmed
             hasBoardToken = true
         }
     }

@@ -57,9 +57,13 @@ jobs:
           chmod +x ./ios/build-ios.sh
           ./ios/build-ios.sh
 
-      - name: Build the app (unsigned, simulator)
+      - name: Build the app (simulator, ad-hoc signed)
         # The simulator build is the one a human can run without a device,
-        # so it is worth proving it compiles.
+        # so it is worth proving it compiles. It is signed ad-hoc ("-")
+        # rather than unsigned: an unsigned simulator build has no keychain
+        # entitlement, and the Keychain refuses the write with -34018, which
+        # leaves the app unable to hold a board key at all. The shipped
+        # .ipa below stays unsigned.
         run: |
           cd ios
           xcodegen generate
@@ -72,8 +76,9 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedDataSim \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_IDENTITY="-" \
             build | tee build/xcodebuild-simulator.log
 
       - name: Package the .ipa
