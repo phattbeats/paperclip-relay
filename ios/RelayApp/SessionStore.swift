@@ -46,13 +46,47 @@ final class SessionStore: ObservableObject {
             ?? UserDefaults.standard.string(forKey: Defaults.companyId)
             ?? ""
 
-        if let launchToken = environment["RELAY_BOARD_TOKEN"] ?? Self.launchArgument("relayBoardToken"),
+        // A bootstrap file in the app's Documents directory is the third way
+        // in. It exists for the screenshot run in CI, which cannot type into
+        // the app and cannot rely on the argument domain either. A human
+        // never uses it: the file is not created by the app.
+        let bootstrap = Self.bootstrapConfig()
+
+        if let launchToken = environment["RELAY_BOARD_TOKEN"]
+            ?? Self.launchArgument("relayBoardToken")
+            ?? bootstrap?["boardToken"],
            !launchToken.isEmpty,
            Keychain.read(service: service, account: Defaults.boardToken) == nil {
             Keychain.write(launchToken, service: service, account: Defaults.boardToken)
         }
+        if let base = bootstrap?["baseURL"], !base.isEmpty { baseURL = base }
+        if let company = bootstrap?["companyId"], !company.isEmpty { companyId = company }
         hasBoardToken = Keychain.read(service: service, account: Defaults.boardToken) != nil
         hasSessionCookie = Keychain.read(service: service, account: Defaults.sessionCookie) != nil
+
+        writeLaunchDiagnostic()
+    }
+
+    /// Drop a small diagnostic file in Documents so an automated run can see
+    /// what the app actually found at launch: whether the key landed in the
+    /// Keychain, what the environment carried, and which tab was selected.
+    private func writeLaunchDiagnostic() {
+        let environment = ProcessInfo.processInfo.environment
+        let diagnostic: [String: Any] = [
+            "baseURL": baseURL,
+            "companyId": companyId,
+            "hasBoardToken": hasBoardToken,
+            "hasSessionCookie": hasSessionCookie,
+            "initialTab": SessionStore.launchTab,
+            "environmentKeys": environment.keys.filter { $0.hasPrefix("RELAY_") }.sorted(),
+            "environmentHasToken": environment["RELAY_BOARD_TOKEN"] != nil,
+            "bootstrapFileFound": SessionStore.bootstrapConfig() != nil,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted]),
+              let documents = FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: documents.appendingPathComponent("relay-launch.json"))
     }
 
     /// A launch argument in the argument domain. The key has to be free of
@@ -66,7 +100,26 @@ final class SessionStore: ObservableObject {
     static var launchTab: String {
         ProcessInfo.processInfo.environment["RELAY_INITIAL_TAB"]
             ?? UserDefaults.standard.string(forKey: "relayInitialTab")
+            ?? Self.bootstrapConfig()?["initialTab"]
             ?? ""
+    }
+
+    /// Read `relay-config.json` from the app's Documents directory.
+    ///
+    /// Keys: `baseURL`, `companyId`, `boardToken`, `initialTab`. It is a
+    /// bootstrap path for automated runs, not a settings store — the app
+    /// never writes it, and a real install never has it.
+    private static func bootstrapConfig() -> [String: String]? {
+        guard let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let path = documents.appendingPathComponent("relay-config.json")
+        guard let data = try? Data(contentsOf: path) else { return nil }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var config: [String: String] = [:]
+        for (key, value) in object {
+            if let text = value as? String { config[key] = text }
+        }
+        return config
     }
 
     var boardToken: String? {
@@ -116,7 +169,11 @@ final class SessionStore: ObservableObject {
 
 /// Minimal Keychain wrapper for `kSecClassGenericPassword` items.
 enum Keychain {
-    static func write(_ value: String, service: String, account: String) {
+    /// Returns the Keychain status so a caller can see a write that did not
+    /// stick. A silent failure here looks exactly like "the app forgot my
+    /// key", which is a miserable thing to debug on a phone.
+    @discardableResult
+    static func write(_ value: String, service: String, account: String) -> OSStatus {
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -128,7 +185,7 @@ enum Keychain {
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(insert as CFDictionary, nil)
+        return SecItemAdd(insert as CFDictionary, nil)
     }
 
     static func read(service: String, account: String) -> String? {
