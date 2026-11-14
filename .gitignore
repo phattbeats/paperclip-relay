@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/
+*.xcworkspace/
+
+# Swift
+.build/
+.swiftpm/
+Packages/
+
+# Secrets — the board key never belongs in the repo.
+*.env
+*.key
+*.token
+secrets/

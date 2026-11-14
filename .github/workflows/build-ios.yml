@@ -1,0 +1,205 @@
+name: build-ios
+
+# PHA-5156 — Paperclip Relay, the native iOS client for the Paperclip board.
+#
+# Runs on a macOS runner: Xcode's iOS SDK is the only place an .app can be
+# assembled for a device.
+#
+# The deliverable is an *unsigned* .ipa. "Sideloaded only, no licensing" is
+# the whole point of this issue: nothing here needs an Apple Developer
+# Program account, an App Store record, or a provisioning profile. The .ipa
+# is sideloaded with AltStore/SideStore (or signed locally with a personal
+# team).
+#
+# The repo is public, so the macOS runner minutes are free.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios.yml"
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    # macos-15 ships Xcode 16, which understands the project file format
+    # (77) that current XcodeGen emits. The macos-14 image's Xcode 15.4
+    # refuses to open it: "the project cannot be opened because it is in a
+    # future Xcode project file format (77)".
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Xcode and SDK versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+      - name: Install XcodeGen
+        # The Xcode project is generated from ios/project.yml rather than
+        # committed, so there is no machine-written .xcodeproj to merge.
+        run: brew install xcodegen
+
+      - name: Build the app (unsigned, device)
+        run: |
+          chmod +x ./ios/build-ios.sh
+          ./ios/build-ios.sh
+
+      - name: Build the app (unsigned, simulator)
+        # The simulator build is the one a human can run without a device,
+        # so it is worth proving it compiles.
+        run: |
+          cd ios
+          xcodegen generate
+          set -o pipefail
+          xcodebuild \
+            -project Relay.xcodeproj \
+            -scheme Relay \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedDataSim \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build | tee build/xcodebuild-simulator.log
+
+      - name: Package the .ipa
+        # build-ios.sh already produced the .ipa on the device build. This
+        # step re-checks it and fails loudly if the Payload layout is wrong,
+        # because a malformed .ipa installs as nothing at all.
+        run: |
+          cd ios
+          APP="build/DerivedData/Build/Products/Release-iphoneos/Relay.app"
+          test -d "$APP"
+          rm -rf build/Payload build/Relay-unsigned.ipa
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          cd build
+          zip -qry Relay-unsigned.ipa Payload
+          ls -la Relay-unsigned.ipa
+          unzip -l Relay-unsigned.ipa | head -25
+          unzip -l Relay-unsigned.ipa | grep -q "Payload/Relay.app/Info.plist" \
+            || { echo "::error::the .ipa has no Payload/Relay.app/Info.plist"; exit 1; }
+
+      - name: Verify the deployment target
+        # The whole point of this client is that it runs on iOS 16. If the
+        # build ever raises the floor, this fails and the card says so.
+        run: |
+          plutil -p ios/build/Payload/Relay.app/Info.plist | grep -E "MinimumOSVersion|CFBundleIdentifier"
+          MIN=$(plutil -extract MinimumOSVersion raw ios/build/Payload/Relay.app/Info.plist)
+          echo "MinimumOSVersion = $MIN"
+          case "$MIN" in
+            16.*|15.*) echo "deployment target is $MIN — iOS 16 supported" ;;
+            *) echo "::error::deployment target is $MIN, but this client must run on iOS 16"; exit 1 ;;
+          esac
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-relay-ios-unsigned-ipa
+          path: ios/build/Relay-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stage the simulator app
+        # Copy the built .app under a known path so the artifact keeps the
+        # Relay.app wrapper. upload-artifact roots an artifact at the least
+        # common ancestor of the files it stores, which flattens a bare
+        # "…/Relay.app" path and loses the wrapper.
+        run: |
+          mkdir -p ios/build/simulator
+          cp -R ios/build/DerivedDataSim/Build/Products/Debug-iphonesimulator/Relay.app \
+            ios/build/simulator/Relay.app
+          ls -la ios/build/simulator/Relay.app
+
+      - name: Upload the simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-relay-ios-simulator-app
+          path: ios/build/simulator
+          if-no-files-found: error
+          retention-days: 14
+
+  screenshots:
+    # Screenshots of the three tabs, taken on an iPhone simulator against the
+    # live board. The board key comes from the repository secret, never from
+    # the repository itself.
+    runs-on: macos-15
+    needs: build-ios
+    timeout-minutes: 30
+    if: ${{ success() }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the simulator build
+        uses: actions/download-artifact@v4
+        with:
+          name: paperclip-relay-ios-simulator-app
+          path: ios/build/simulator
+
+      - name: Boot an iPhone simulator
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("no iPhone simulator available")
+          ')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl list devices | grep -i "$UDID"
+
+      - name: Install the app
+        run: |
+          xcrun simctl install "$UDID" ios/build/simulator/Relay.app
+
+      - name: Screenshot each tab
+        env:
+          RELAY_BOARD_TOKEN: ${{ secrets.RELAY_BOARD_TOKEN }}
+          RELAY_COMPANY_ID: ${{ secrets.RELAY_COMPANY_ID }}
+          RELAY_BASE_URL: https://paperclip.phatt.vip
+        run: |
+          set -euo pipefail
+          mkdir -p screenshots
+          for tab in issues agents approvals; do
+            xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" tech.phatt.papercliprelay \
+              -relayBaseURL "$RELAY_BASE_URL" \
+              -relayCompanyId "$RELAY_COMPANY_ID" \
+              -relayBoardToken "$RELAY_BOARD_TOKEN" \
+              -relayInitialTab "$tab"
+            # The app loads the board on launch; give it time to paint.
+            sleep 20
+            xcrun simctl io "$UDID" screenshot "screenshots/$tab.png"
+            ls -la screenshots/
+          done
+
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-relay-ios-screenshots
+          path: screenshots
+          if-no-files-found: error
+          retention-days: 30

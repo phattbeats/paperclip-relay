@@ -1,0 +1,61 @@
+# XcodeGen spec for Paperclip Relay, the native iOS client for the
+# Paperclip board (PHA-5156).
+#
+# The project file is NOT committed — `xcodegen generate` writes
+# Relay.xcodeproj from this spec, and CI does exactly that before
+# xcodebuild. Keeping the spec (not the .xcodeproj) in git means no merge
+# conflicts on a file that is 100% machine-generated.
+#
+# deploymentTarget is iOS 16.0 because the phone this client exists for runs
+# iOS 16.4. Nothing newer may be used without raising that floor — check
+# the availability annotations before adding an API.
+#
+# There is no Rust core here, no UniFFI, no bridging header. This is plain
+# SwiftUI over URLSession and the Keychain, which is why the build is a
+# single xcodebuild invocation with no cross-compilation step.
+
+name: Relay
+
+options:
+  bundleIdPrefix: tech.phatt
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ALWAYS_SEARCH_USER_PATHS: "NO"
+    CLANG_ENABLE_MODULES: "YES"
+    CLANG_ENABLE_OBJC_ARC: "YES"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    # Unsigned build: sideloaded with AltStore/SideStore or a personal team.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  Relay:
+    type: application
+    platform: iOS
+    sources:
+      - path: RelayApp
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_NAME: Relay
+        PRODUCT_BUNDLE_IDENTIFIER: tech.phatt.papercliprelay
+        INFOPLIST_FILE: RelayApp/Info.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_STRICT_CONCURRENCY: minimal
+    dependencies:
+      - sdk: Security.framework
