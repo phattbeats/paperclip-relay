@@ -29,13 +29,24 @@ final class SessionStore: ObservableObject {
     @Published private(set) var hasSessionCookie: Bool = false
 
     init() {
-        baseURL = UserDefaults.standard.string(forKey: Defaults.baseURL) ?? "https://paperclip.phatt.vip"
-        companyId = UserDefaults.standard.string(forKey: Defaults.companyId) ?? ""
-        // A board key can also arrive on the launch arguments (the argument
-        // domain is visible through UserDefaults). That path exists so an
-        // automated run can open the app already signed in — nothing else
-        // sets it, and a human always types the key into Settings.
-        if let launchToken = UserDefaults.standard.string(forKey: Defaults.boardToken),
+        // Credentials and settings can arrive three ways: the environment
+        // (used by the screenshot run), the launch arguments, or what the
+        // user saved last time. Environment first because `simctl launch`
+        // passes the environment through reliably, while the UserDefaults
+        // argument domain cannot carry keys containing a period — which is
+        // exactly what the persisted keys use.
+        let environment = ProcessInfo.processInfo.environment
+
+        baseURL = environment["RELAY_BASE_URL"]
+            ?? launchArgument("relayBaseURL")
+            ?? UserDefaults.standard.string(forKey: Defaults.baseURL)
+            ?? "https://paperclip.phatt.vip"
+        companyId = environment["RELAY_COMPANY_ID"]
+            ?? launchArgument("relayCompanyId")
+            ?? UserDefaults.standard.string(forKey: Defaults.companyId)
+            ?? ""
+
+        if let launchToken = environment["RELAY_BOARD_TOKEN"] ?? launchArgument("relayBoardToken"),
            !launchToken.isEmpty,
            Keychain.read(service: service, account: Defaults.boardToken) == nil {
             Keychain.write(launchToken, service: service, account: Defaults.boardToken)
@@ -44,10 +55,18 @@ final class SessionStore: ObservableObject {
         hasSessionCookie = Keychain.read(service: service, account: Defaults.sessionCookie) != nil
     }
 
+    /// A launch argument in the argument domain. The key has to be free of
+    /// periods; the argument domain silently drops the ones that are not.
+    private static func launchArgument(_ key: String) -> String? {
+        UserDefaults.standard.string(forKey: key)
+    }
+
     /// Which tab to open on launch. Used by the screenshot run; a human
     /// always starts on the first tab.
     static var launchTab: String {
-        UserDefaults.standard.string(forKey: "relay.initialTab") ?? ""
+        ProcessInfo.processInfo.environment["RELAY_INITIAL_TAB"]
+            ?? UserDefaults.standard.string(forKey: "relayInitialTab")
+            ?? ""
     }
 
     var boardToken: String? {

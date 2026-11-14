@@ -189,13 +189,17 @@ jobs:
           mkdir -p screenshots
           for tab in issues agents approvals; do
             xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
-            xcrun simctl launch "$UDID" tech.phatt.papercliprelay \
-              -relayBaseURL "$RELAY_BASE_URL" \
-              -relayCompanyId "$RELAY_COMPANY_ID" \
-              -relayBoardToken "$RELAY_BOARD_TOKEN" \
-              -relayInitialTab "$tab"
+            # SIMCTL_CHILD_* is how simctl hands environment variables to the
+            # launched app. The UserDefaults argument domain cannot carry
+            # keys with a period in them, which is what the app persists
+            # under, so the environment is the reliable path here.
+            SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
+            SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
+            SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
+            SIMCTL_CHILD_RELAY_INITIAL_TAB="$tab" \
+              xcrun simctl launch "$UDID" tech.phatt.papercliprelay
             # The app loads the board on launch; give it time to paint.
-            sleep 20
+            sleep 30
             xcrun simctl io "$UDID" screenshot "screenshots/$tab.png"
             ls -la screenshots/
           done
