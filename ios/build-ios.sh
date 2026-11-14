@@ -20,6 +20,12 @@ set -euo pipefail
 IOS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$IOS_DIR/build"
 
+# The build directory has to exist before the pipeline starts: `tee` opens
+# its log file the moment the pipeline starts, and xcodebuild only creates
+# the directory while it runs. Without this, tee dies with ENOENT and
+# pipefail turns a successful build into a failed step.
+mkdir -p "$BUILD_DIR"
+
 need() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "build-ios.sh: missing dependency: $1" >&2
