@@ -53,89 +53,88 @@ final class BoardStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
     }
 
+    /// Load everything the three tabs read. The six requests run
+    /// concurrently; each one owns its own state and its own error, so one
+    /// failing endpoint does not blank the rest of the app.
     func refreshAll(auth: Credentials) async {
-        agentsState = .loading
-        issuesState = .loading
-        approvalsState = .loading
-        attentionState = .loading
-
-        // The requests run concurrently; the results are assigned on the
-        // main actor afterwards. Mutating published state inside the request
-        // closures would be a concurrency violation, and a phone on a slow
-        // link should not pay for six sequential round trips.
-        async let agentsTask = service.agents(auth: auth)
-        async let issuesTask = service.issues(auth: auth)
-        async let approvalsTask = service.approvals(auth: auth)
-        async let attentionTask = service.attention(auth: auth)
-        async let runsTask = service.liveRuns(auth: auth)
-        async let projectsTask = service.projects(auth: auth)
-
-        let agentsResult = try? await agentsTask
-        let issuesResult = try? await issuesTask
-        let approvalsResult = try? await approvalsTask
-        let attentionResult = try? await attentionTask
-        let runsResult = try? await runsTask
-        let projectsResult = try? await projectsTask
-
-        if let agentsResult {
-            agents = agentsResult
-            agentsState = .loaded
-        } else {
-            agentsState = .failed("Could not load the agent roster.")
-        }
-        if let issuesResult {
-            issues = issuesResult
-            issuesState = .loaded
-        } else {
-            issuesState = .failed("Could not load issues.")
-        }
-        if let approvalsResult {
-            approvals = approvalsResult
-            approvalsState = .loaded
-        } else {
-            approvalsState = .failed("Could not load approvals.")
-        }
-        if let attentionResult {
-            attention = attentionResult
-            attentionState = .loaded
-        } else {
-            attentionState = .failed("Could not load the attention feed.")
-        }
-        if let runsResult {
-            liveRuns = runsResult
-        }
-        if let projectsResult {
-            projects = projectsResult
-        }
+        async let agentsLoad = loadAgents(auth)
+        async let issuesLoad = loadIssues(auth)
+        async let approvalsLoad = loadApprovals(auth)
+        async let attentionLoad = loadAttention(auth)
+        async let runsLoad = loadLiveRuns(auth)
+        async let projectsLoad = loadProjects(auth)
+        _ = await (agentsLoad, issuesLoad, approvalsLoad, attentionLoad, runsLoad, projectsLoad)
     }
 
     func refreshApprovals(auth: Credentials) async {
-        approvalsState = .loading
-        if let result = try? await service.approvals(auth: auth) {
-            approvals = result
-            approvalsState = .loaded
-        } else {
-            approvalsState = .failed("Could not load approvals.")
-        }
+        await loadApprovals(auth)
     }
 
     func refreshIssues(auth: Credentials) async {
-        issuesState = .loading
-        if let result = try? await service.issues(auth: auth) {
-            issues = result
-            issuesState = .loaded
-        } else {
-            issuesState = .failed("Could not load issues.")
-        }
+        await loadIssues(auth)
     }
 
     func refreshAttention(auth: Credentials) async {
-        attentionState = .loading
-        if let result = try? await service.attention(auth: auth) {
-            attention = result
-            attentionState = .loaded
-        } else {
-            attentionState = .failed("Could not load the attention feed.")
+        await loadAttention(auth)
+    }
+
+    private func loadAgents(_ auth: Credentials) async {
+        do {
+            agents = try await service.agents(auth: auth)
+            agentsState = .loaded
+        } catch {
+            agentsState = .failed(Self.message(for: error))
+            banner = Self.message(for: error)
         }
+    }
+
+    private func loadIssues(_ auth: Credentials) async {
+        do {
+            issues = try await service.issues(auth: auth)
+            issuesState = .loaded
+        } catch {
+            issuesState = .failed(Self.message(for: error))
+            banner = Self.message(for: error)
+        }
+    }
+
+    private func loadApprovals(_ auth: Credentials) async {
+        do {
+            approvals = try await service.approvals(auth: auth)
+            approvalsState = .loaded
+        } catch {
+            approvalsState = .failed(Self.message(for: error))
+            banner = Self.message(for: error)
+        }
+    }
+
+    private func loadAttention(_ auth: Credentials) async {
+        do {
+            attention = try await service.attention(auth: auth)
+            attentionState = .loaded
+        } catch {
+            attentionState = .failed(Self.message(for: error))
+            banner = Self.message(for: error)
+        }
+    }
+
+    private func loadLiveRuns(_ auth: Credentials) async {
+        do {
+            liveRuns = try await service.liveRuns(auth: auth)
+        } catch {
+            banner = Self.message(for: error)
+        }
+    }
+
+    private func loadProjects(_ auth: Credentials) async {
+        do {
+            projects = try await service.projects(auth: auth)
+        } catch {
+            banner = Self.message(for: error)
+        }
+    }
+
+    static func message(for error: Error) -> String {
+        (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
     }
 }

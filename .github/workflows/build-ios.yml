@@ -89,8 +89,11 @@ jobs:
           cd build
           zip -qry Relay-unsigned.ipa Payload
           ls -la Relay-unsigned.ipa
-          unzip -l Relay-unsigned.ipa | head -25
-          unzip -l Relay-unsigned.ipa | grep -q "Payload/Relay.app/Info.plist" \
+          # No pipes into head/grep here: the reader exits early, unzip takes
+          # a SIGPIPE, and the step fails on a perfectly good .ipa.
+          unzip -l Relay-unsigned.ipa > ipa-listing.txt
+          head -25 ipa-listing.txt
+          grep -q "Payload/Relay.app/Info.plist" ipa-listing.txt \
             || { echo "::error::the .ipa has no Payload/Relay.app/Info.plist"; exit 1; }
 
       - name: Verify the deployment target

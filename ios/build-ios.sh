@@ -63,8 +63,12 @@ cd "$BUILD_DIR"
 # (AltStore, SideStore, Apple Configurator) looks for.
 zip -qry Relay-unsigned.ipa Payload
 ls -la Relay-unsigned.ipa
-unzip -l Relay-unsigned.ipa | head -25
-unzip -l Relay-unsigned.ipa | grep -q "Payload/Relay.app/Info.plist" \
+# The listing goes to a file first: piping unzip into head/grep makes the
+# pipeline fail with SIGPIPE the moment the reader stops early, and
+# `set -o pipefail` turns that into a failed build of a perfectly good .ipa.
+unzip -l Relay-unsigned.ipa > ipa-listing.txt
+head -25 ipa-listing.txt
+grep -q "Payload/Relay.app/Info.plist" ipa-listing.txt \
   || { echo "build-ios.sh: ERROR — the .ipa has no Payload/Relay.app/Info.plist" >&2; exit 1; }
 
 echo "build-ios.sh: done -> $BUILD_DIR/Relay-unsigned.ipa"
