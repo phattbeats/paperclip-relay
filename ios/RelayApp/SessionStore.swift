@@ -38,15 +38,15 @@ final class SessionStore: ObservableObject {
         let environment = ProcessInfo.processInfo.environment
 
         baseURL = environment["RELAY_BASE_URL"]
-            ?? launchArgument("relayBaseURL")
+            ?? Self.launchArgument("relayBaseURL")
             ?? UserDefaults.standard.string(forKey: Defaults.baseURL)
             ?? "https://paperclip.phatt.vip"
         companyId = environment["RELAY_COMPANY_ID"]
-            ?? launchArgument("relayCompanyId")
+            ?? Self.launchArgument("relayCompanyId")
             ?? UserDefaults.standard.string(forKey: Defaults.companyId)
             ?? ""
 
-        if let launchToken = environment["RELAY_BOARD_TOKEN"] ?? launchArgument("relayBoardToken"),
+        if let launchToken = environment["RELAY_BOARD_TOKEN"] ?? Self.launchArgument("relayBoardToken"),
            !launchToken.isEmpty,
            Keychain.read(service: service, account: Defaults.boardToken) == nil {
             Keychain.write(launchToken, service: service, account: Defaults.boardToken)
