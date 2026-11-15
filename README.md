@@ -109,6 +109,22 @@ the three tabs. The board key comes from the repository secret
 (`RELAY_BOARD_TOKEN`), never from the repository itself, and the screenshots
 come out as the `paperclip-relay-ios-screenshots` artifact.
 
+The simulator build is signed **ad-hoc** (`CODE_SIGN_IDENTITY="-"`), unlike the
+shipped `.ipa`, which is unsigned. An unsigned simulator build carries no
+keychain entitlement, so the Keychain refuses the write with -34018 and the
+app comes up unconfigured — the screenshots then show the first-run setup
+screen and look like an app with no data. `SessionStore` also keeps the board
+key in memory when a Keychain write is refused, so the app still works on a
+build where the Keychain is unavailable. The `.ipa` that ships is unsigned by
+design: AltStore signs it on the device, where the Keychain is available.
+
+When a screenshot run comes back showing the setup screen, read
+`relay-launch.json` from the simulator's Documents directory in the CI log
+before changing anything else. It reports `hasBoardToken`,
+`keychainWriteStatus`, `tokenHeldInMemory`, `bootstrapFileFound` and
+`environmentHasToken`, which distinguishes "the app never got the key" from
+"the app got the key and the request failed".
+
 ## Layout
 
 ```
