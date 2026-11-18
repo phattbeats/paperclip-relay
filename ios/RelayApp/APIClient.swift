@@ -69,7 +69,8 @@ final class APIClient {
             // A decoding failure otherwise names neither the endpoint nor
             // the payload that drifted. Keep the route in the visible error
             // so a board schema change can be diagnosed on the phone.
-            throw RelayAPIError.server(status: status, message: "\(path): \(message)")
+            let endpoint = path.split(separator: "/").last.map(String.init) ?? path
+            throw RelayAPIError.server(status: status, message: "\(endpoint): \(message)")
         }
     }
 
