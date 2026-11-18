@@ -11,9 +11,12 @@ and reachable from any client, so the missing piece was the client, not the serv
 
 Three tabs, all against the board's REST API:
 
-- **Issues** — list, search, filter by status; open one to read the description
-  and the comment thread, post a comment, or change status with an optional
-  note attached to the same write.
+- **Issues** — the board's own task views as a chip row, no menu: *Needs
+  attention*, *All*, *Active*, *Backlog*, *Done*, plus the board user's inbox
+  (*Mine*, *Unread*, *Blocked*, *Recent*, *Everything*). Every chip shows a
+  count, and the list opens on *Active*. Search on top, then open one to read
+  the description and the comment thread, post a comment, or change status
+  with an optional note attached to the same write.
 - **Agents** — the roster with live status, plus what is running right now.
 - **Approvals** — pending board approvals with approve/reject and a decision note.
 
@@ -78,6 +81,7 @@ credential.
 | GET | `/api/companies` | company discovery (finds the company id) |
 | GET | `/api/companies/{id}/agents` | agent roster |
 | GET | `/api/companies/{id}/issues?view=index` | issue list (lightweight projection) |
+| GET | `/api/companies/{id}/issues?view=index&status=a,b` | one status set at a time, for the filter chips |
 | GET | `/api/issues/{id}` | issue detail |
 | GET | `/api/issues/{id}/comments` | comment thread |
 | POST | `/api/issues/{id}/comments` | post a comment |
@@ -89,9 +93,18 @@ credential.
 | GET | `/api/companies/{id}/projects` | project names |
 | GET | `/api/board-api-keys` | key list (settings) |
 | GET | `/api/companies/{id}/attention` | needs-you feed |
+| GET | `/api/companies/{id}/inbox/mine` | the board user's own inbox |
 
 Notes:
 
+- The filter chips use the board's own vocabulary, not a new one: *Active*
+  is the board's `todo + in_progress + monitoring + in_review + blocked`
+  preset, *Done* is `done + cancelled`, and *Needs attention* is the issues
+  with a pending decision on the attention feed. The inbox chips read the
+  board user's own inbox (`/inbox/mine`).
+- A chip count is a floor, not always a total. The board has well over a
+  thousand issues, so the app fetches at most 100 rows per set and marks a
+  truncated count with a `+`.
 - `attention` is **company-scoped**. The bare `/api/attention` path is 404.
 - A status change and its note go in one `PATCH`. The server's review guard
   wants the decision comment in the same write — a separate comment `POST`
@@ -137,7 +150,9 @@ ios/RelayApp/
   BoardService.swift       typed calls
   SessionStore.swift       settings + Keychain
   Models.swift             wire types
-  IssuesView.swift         issue list
+  IssuesView.swift         issue list and the filter chip row
+  IssueFilters.swift       chip vocabulary, counts, the filter store
+  IssueFilterService.swift the endpoints the filter reads
   IssueDetailView.swift    issue detail, comments, status change
   AgentsView.swift         roster and live runs
   ApprovalsView.swift      approvals and decisions
