@@ -63,7 +63,14 @@ final class APIClient {
                            auth: Credentials,
                            as type: T.Type) async throws -> T {
         let data = try await perform("GET", path, query: query, body: nil, auth: auth)
-        return try decode(data)
+        do {
+            return try decode(data)
+        } catch let RelayAPIError.server(status, message) {
+            // A decoding failure otherwise names neither the endpoint nor
+            // the payload that drifted. Keep the route in the visible error
+            // so a board schema change can be diagnosed on the phone.
+            throw RelayAPIError.server(status: status, message: "\(path): \(message)")
+        }
     }
 
     /// Fetch a resource as bytes rather than JSON — an attachment's content.
