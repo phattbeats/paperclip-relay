@@ -1,0 +1,131 @@
+name: screenshots-ios
+
+# PHA-5156 — Paperclip Relay. Screenshots of the tabs, taken on an iPhone
+# simulator against the live board.
+#
+# This is a separate workflow from build-ios.yml on purpose. The macOS
+# arm64 runner pool that build-ios.yml uses is frequently saturated, and a
+# screenshot job that cannot be acquired by a runner gets cancelled by
+# GitHub rather than queued — which is how the screenshot job died three
+# times on 2026-11-18 while the device build was green.
+#
+# So this workflow runs on the Intel runner pool, builds its own simulator
+# app (the simulator app must be built on the same architecture as the
+# runner that runs it), and captures the screenshots. The device .ipa is
+# still produced by build-ios.yml; nothing here ships an artifact to a
+# phone.
+#
+# The board key comes from the repository secret, never from the repository
+# itself.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/screenshots-ios.yml"
+
+jobs:
+  screenshots:
+    # macos-15-intel is the Intel pool; macos-15 is the arm64 pool that
+    # build-ios.yml uses. The simulator app has to be built on the runner
+    # that runs it, so this job builds its own rather than downloading the
+    # arm64 artifact.
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode and SDK versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build the app (simulator, ad-hoc signed)
+        # Same reasoning as build-ios.yml: an unsigned simulator build has
+        # no keychain entitlement and the Keychain refuses the write with
+        # -34018, which leaves the app unable to hold a board key at all.
+        run: |
+          cd ios
+          xcodegen generate
+          mkdir -p build
+          set -o pipefail
+          xcodebuild \
+            -project Relay.xcodeproj \
+            -scheme Relay \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedDataSim \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_IDENTITY="-" \
+            build | tee build/xcodebuild-simulator.log
+
+      - name: Boot an iPhone simulator
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("no iPhone simulator available")
+          ')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl list devices | grep -i "$UDID"
+
+      - name: Install the app
+        run: |
+          xcrun simctl install "$UDID" ios/build/DerivedDataSim/Build/Products/Debug-iphonesimulator/Relay.app
+
+      - name: Screenshot each tab
+        env:
+          RELAY_BOARD_TOKEN: ${{ secrets.RELAY_BOARD_TOKEN }}
+          RELAY_COMPANY_ID: ${{ secrets.RELAY_COMPANY_ID }}
+          RELAY_BASE_URL: https://paperclip.phatt.vip
+        run: |
+          set -euo pipefail
+          mkdir -p screenshots
+          CONTAINER=$(xcrun simctl get_app_container "$UDID" tech.phatt.papercliprelay data)
+          mkdir -p "$CONTAINER/Documents"
+          for tab in issues inbox agents approvals; do
+            xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
+            # The app cannot be typed into, so the configuration is written
+            # into its container as a bootstrap file. The environment is
+            # passed as well; whichever arrives wins.
+            printf '{"baseURL":"%s","companyId":"%s","boardToken":"%s","initialTab":"%s"}' \
+              "$RELAY_BASE_URL" "$RELAY_COMPANY_ID" "$RELAY_BOARD_TOKEN" "$tab" \
+              > "$CONTAINER/Documents/relay-config.json"
+            SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
+            SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
+            SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
+            SIMCTL_CHILD_RELAY_INITIAL_TAB="$tab" \
+              xcrun simctl launch "$UDID" tech.phatt.papercliprelay
+            # The app loads the board on launch; give it time to paint.
+            sleep 30
+            xcrun simctl io "$UDID" screenshot "screenshots/$tab.png"
+            ls -la screenshots/
+            echo "--- launch diagnostic"
+            cat "$CONTAINER/Documents/relay-launch.json" || echo "no diagnostic file"
+          done
+
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-relay-ios-screenshots
+          path: screenshots
+          if-no-files-found: error
+          retention-days: 30
