@@ -1,26 +1,25 @@
 import SwiftUI
+import UIKit
 
 struct IssuesView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
+    @StateObject private var filters = IssueFilterStore()
 
     @State private var search = ""
-    @State private var statusFilter = ""
-
-    private let filters = ["", "todo", "in_progress", "blocked", "in_review", "done"]
 
     var body: some View {
         NavigationView {
             Group {
-                if board.issuesState == .loading && board.issues.isEmpty {
+                if filters.state == .loading && filters.rows.isEmpty {
                     ProgressView()
-                } else if board.issues.isEmpty {
+                } else if filters.rows.isEmpty {
                     EmptyState(
-                        title: "No issues",
-                        message: "Nothing matches this filter.",
+                        title: filters.errorMessage == nil ? "Nothing here" : "Could not load issues",
+                        message: filters.errorMessage ?? "No issues match \(filters.selection.title).",
                         actionTitle: "Reload",
                         action: {
-                            Task { await board.refreshIssues(auth: session.credentials) }
+                            Task { await filters.refresh(auth: session.credentials) }
                         }
                     )
                 } else {
@@ -28,70 +27,129 @@ struct IssuesView: View {
                 }
             }
             .navigationTitle("Issues")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Picker("Status", selection: $statusFilter) {
-                            ForEach(filters, id: \.self) { value in
-                                Text(value.isEmpty ? "All" : value.replacingOccurrences(of: "_", with: " "))
-                                    .tag(value)
+            .searchable(text: $search, prompt: "Search titles")
+            .safeAreaInset(edge: .top, spacing: 0) { filterHeader }
+        }
+        .navigationViewStyle(.stack)
+        .task {
+            await filters.refresh(auth: session.credentials)
+        }
+    }
+
+    /// The chip row. Two axes, both visible without opening anything: the
+    /// board's task views and the board user's inbox. Every chip carries
+    /// its count.
+    private var filterHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(IssueChipGroup.allCases) { group in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(group.title)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(group.chips) { chip in
+                                FilterChipButton(
+                                    chip: chip,
+                                    count: filters.counts[chip],
+                                    isSelected: filters.selection == chip
+                                ) {
+                                    filters.select(chip)
+                                }
                             }
                         }
-                    } label: {
-                        Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 2)
                     }
                 }
             }
-            .searchable(text: $search, prompt: "Search titles")
         }
-        .navigationViewStyle(.stack)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.systemGroupedBackground))
     }
 
     private var list: some View {
         List {
-            ForEach(filtered) { issue in
-                NavigationLink {
-                    IssueDetailView(issueID: issue.id)
-                } label: {
-                    IssueRow(issue: issue, agentName: board.agentById[issue.assigneeAgentId ?? ""]?.name)
+            Section {
+                ForEach(filtered) { item in
+                    NavigationLink {
+                        IssueDetailView(issueID: item.id)
+                    } label: {
+                        IssueRow(item: item, agentName: board.agentById[item.assigneeAgentId ?? ""]?.name)
+                    }
+                }
+                if let notice = filters.notice {
+                    Text(notice)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                if let failure = filters.errorMessage {
+                    Text(failure)
+                        .font(.footnote)
+                        .foregroundColor(.orange)
                 }
             }
         }
         .listStyle(.plain)
         .refreshable {
-            await board.refreshIssues(auth: session.credentials)
+            await filters.refresh(auth: session.credentials)
         }
     }
 
-    private var filtered: [Issue] {
-        var result = board.issues
-        if !statusFilter.isEmpty {
-            result = result.filter { $0.status == statusFilter }
-        }
+    private var filtered: [IssueListItem] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !needle.isEmpty {
-            result = result.filter {
-                $0.title.lowercased().contains(needle)
-                    || ($0.identifier?.lowercased().contains(needle) ?? false)
-            }
+        guard !needle.isEmpty else { return filters.rows }
+        return filters.rows.filter {
+            $0.title.lowercased().contains(needle)
+                || ($0.identifier?.lowercased().contains(needle) ?? false)
         }
-        return result
+    }
+}
+
+/// One chip in the filter row: a name and a count.
+struct FilterChipButton: View {
+    let chip: IssueChip
+    let count: ChipCount?
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(chip.title)
+                    .font(.footnote.weight(isSelected ? .semibold : .regular))
+                if let count {
+                    Text(count.label)
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(isSelected ? Color.white.opacity(0.25) : Color.secondary.opacity(0.18),
+                                    in: Capsule())
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.12), in: Capsule())
+            .foregroundColor(isSelected ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
 struct IssueRow: View {
-    let issue: Issue
+    let item: IssueListItem
     let agentName: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(issue.identifier ?? "—")
+                Text(item.identifier ?? "—")
                     .font(.system(.footnote, design: .monospaced))
                     .foregroundColor(.secondary)
-                StatusBadge(status: issue.status)
+                StatusBadge(status: item.status)
                 Spacer()
-                if let priority = issue.priority, priority != "medium" {
+                if let priority = item.priority, priority != "medium" {
                     Text(priority)
                         .font(.caption2.weight(.semibold))
                         .foregroundColor(priorityColor(priority))
@@ -100,7 +158,7 @@ struct IssueRow: View {
                         .background(Color.secondary.opacity(0.12), in: Capsule())
                 }
             }
-            Text(issue.title)
+            Text(item.title)
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(3)
@@ -148,6 +206,7 @@ struct StatusBadge: View {
         case "in_review": return .purple
         case "blocked": return .red
         case "todo": return .orange
+        case "monitoring": return .teal
         case "cancelled": return .secondary
         default: return .secondary
         }

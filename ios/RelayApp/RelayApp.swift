@@ -30,14 +30,12 @@ final class BoardStore: ObservableObject {
     }
 
     @Published var agents: [Agent] = []
-    @Published var issues: [Issue] = []
     @Published var approvals: [Approval] = []
     @Published var attention: AttentionResponse?
     @Published var liveRuns: [LiveRun] = []
     @Published var projects: [Project] = []
 
     @Published var agentsState: LoadState = .idle
-    @Published var issuesState: LoadState = .idle
     @Published var approvalsState: LoadState = .idle
     @Published var attentionState: LoadState = .idle
 
@@ -53,25 +51,24 @@ final class BoardStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
     }
 
-    /// Load everything the three tabs read. The six requests run
+    /// Load everything the three tabs read. The five requests run
     /// concurrently; each one owns its own state and its own error, so one
     /// failing endpoint does not blank the rest of the app.
+    ///
+    /// The issue list is not here: the Issues tab owns its own datasets
+    /// (`IssueFilterStore`), because it reads one status set at a time
+    /// rather than a single list.
     func refreshAll(auth: Credentials) async {
         async let agentsLoad = loadAgents(auth)
-        async let issuesLoad = loadIssues(auth)
         async let approvalsLoad = loadApprovals(auth)
         async let attentionLoad = loadAttention(auth)
         async let runsLoad = loadLiveRuns(auth)
         async let projectsLoad = loadProjects(auth)
-        _ = await (agentsLoad, issuesLoad, approvalsLoad, attentionLoad, runsLoad, projectsLoad)
+        _ = await (agentsLoad, approvalsLoad, attentionLoad, runsLoad, projectsLoad)
     }
 
     func refreshApprovals(auth: Credentials) async {
         await loadApprovals(auth)
-    }
-
-    func refreshIssues(auth: Credentials) async {
-        await loadIssues(auth)
     }
 
     func refreshAttention(auth: Credentials) async {
@@ -84,16 +81,6 @@ final class BoardStore: ObservableObject {
             agentsState = .loaded
         } catch {
             agentsState = .failed(Self.message(for: error))
-            banner = Self.message(for: error)
-        }
-    }
-
-    private func loadIssues(_ auth: Credentials) async {
-        do {
-            issues = try await service.issues(auth: auth)
-            issuesState = .loaded
-        } catch {
-            issuesState = .failed(Self.message(for: error))
             banner = Self.message(for: error)
         }
     }
