@@ -4,7 +4,7 @@ import UIKit
 struct IssuesView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
-    @StateObject private var filters = IssueFilterStore()
+    @EnvironmentObject private var filters: IssueFilterStore
 
     @State private var search = ""
 
@@ -32,7 +32,9 @@ struct IssuesView: View {
         }
         .navigationViewStyle(.stack)
         .task {
-            await filters.refresh(auth: session.credentials)
+            if filters.state == .idle {
+                await filters.refresh(auth: session.credentials)
+            }
         }
     }
 

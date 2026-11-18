@@ -220,8 +220,18 @@ final class IssueFilterStore: ObservableObject {
     /// A line under the list when the selected chip is showing only the
     /// first slice of a larger set.
     var notice: String? {
-        guard let count = counts[selection], count.overflow else { return nil }
+        notice(for: selection)
+    }
+
+    func notice(for chip: IssueChip) -> String? {
+        guard let count = counts[chip], count.overflow else { return nil }
         return "Showing the first \(count.value). The board has more."
+    }
+
+    /// Rows for a second surface that uses the same queue data but owns its
+    /// own selected tab (the Inbox does not change the Issues tab's view).
+    func rows(for chip: IssueChip) -> [IssueListItem] {
+        makeRows(for: chip)
     }
 
     func select(_ chip: IssueChip) {
