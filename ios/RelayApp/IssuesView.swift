@@ -76,11 +76,11 @@ struct IssuesView: View {
             // A decision is not an issue. It is a question the board
             // cannot answer for itself, so it sits above the list as a
             // card of its own, with the answer attached.
-            if !board.decisions.isEmpty || !board.pendingInteractions.isEmpty {
+            if !board.decisions.isEmpty || !filters.pendingInteractions.isEmpty {
                 Section {
                     DecisionCardsView(
                         decisions: board.decisions,
-                        interactions: board.pendingInteractions,
+                        interactions: filters.pendingInteractions,
                         onResolve: { await refreshBoard() }
                     )
                     .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))

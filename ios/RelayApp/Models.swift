@@ -262,9 +262,7 @@ struct InteractionAnswer: Hashable {
 
 /// A decision proposed on the board: a question with options.
 ///
-/// The board's decision status vocabulary is `open`, `decided`, `expired`
-/// and `cancelled` — there is no `pending`. An open decision is one the
-/// board still has to answer.
+/// A pending decision is one the board still has to answer.
 struct Decision: Codable, Identifiable, Hashable {
     let id: String
     let title: String?
@@ -544,6 +542,20 @@ struct PendingInteraction: Identifiable, Hashable {
         self.title = item.subject?.title
         self.kind = item.subject?.metadata?.kind
         self.severity = item.severity
+        self.verbs = item.decisionVerbs ?? []
+    }
+
+    /// The Issues tab reads the filter store's narrow attention projection.
+    /// It contains the same interaction contract as the shared board feed,
+    /// without making a duplicate request just to render decision cards.
+    init(attentionItem item: AttentionFeedItem) {
+        self.id = item.subject?.id ?? item.id
+        self.issueID = item.issue?.id
+        self.issueIdentifier = item.issue?.identifier
+        self.issueTitle = item.issue?.title
+        self.title = item.subject?.title
+        self.kind = item.subject?.metadata?.kind
+        self.severity = nil
         self.verbs = item.decisionVerbs ?? []
     }
 }

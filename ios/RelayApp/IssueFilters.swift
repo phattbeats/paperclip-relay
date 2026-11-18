@@ -167,6 +167,10 @@ final class IssueFilterStore: ObservableObject {
 
     @Published private(set) var rows: [IssueListItem] = []
     @Published private(set) var counts: [IssueChip: ChipCount] = [:]
+    /// Issue-thread questions are part of the same attention feed as the
+    /// Needs attention chip. Keeping this projection here prevents the
+    /// Issues tab from fetching a second, potentially different feed.
+    @Published private(set) var pendingInteractions: [PendingInteraction] = []
     @Published private(set) var state: LoadState = .idle
     @Published private(set) var banner: String?
 
@@ -293,6 +297,9 @@ final class IssueFilterStore: ObservableObject {
         inboxOverflow = inboxResult.overflow
         attentionItems = attentionResult.items
         attentionOverflow = attentionResult.overflow
+        pendingInteractions = attentionItems
+            .filter { $0.sourceKind == "issue_thread_interaction" }
+            .map(PendingInteraction.init(attentionItem:))
         self.blockedTotal = blockedTotal
 
         rebuildCounts()
