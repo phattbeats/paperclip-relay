@@ -488,7 +488,6 @@ struct AttentionItem: Codable, Identifiable, Hashable {
     let updatedAt: String?
     let activityAt: String?
     let rank: Double?
-    let stale: Bool?
 
     /// The issue this item is about, when it is about an issue. A question
     /// and an approval name it in the subject metadata; a review and a
