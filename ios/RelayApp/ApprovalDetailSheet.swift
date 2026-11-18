@@ -7,6 +7,12 @@ import UIKit
 /// the why is usually in the issue the request came from — so the sheet
 /// loads that issue, renders its body as Markdown, and lists whatever is
 /// attached to it.
+///
+/// The link between the approval and its issue is the board's own
+/// (`GET /api/approvals/{id}/issues`), not a field on the approval: the
+/// pending requests on this board carry no source issue in their payload at
+/// all, so a payload-only reading would show an empty sheet for exactly
+/// the requests that need a human.
 struct ApprovalDetailSheet: View {
     let approval: Approval
 
@@ -15,6 +21,7 @@ struct ApprovalDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var issue: Issue?
+    @State private var link: ApprovalIssueLink?
     @State private var attachments: [Attachment] = []
     @State private var loading = true
     @State private var errorMessage: String?
@@ -71,7 +78,7 @@ struct ApprovalDetailSheet: View {
                     }
                 }
 
-                if let source = approval.payload?.sourceIssue, !source.isEmpty {
+                if sourceIssueLabel != nil {
                     Section {
                         if loading {
                             HStack {
@@ -82,7 +89,7 @@ struct ApprovalDetailSheet: View {
                         } else if let issue {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 8) {
-                                    Text(issue.identifier ?? source)
+                                    Text(issue.identifier ?? sourceIssueLabel ?? "")
                                         .font(.system(.footnote, design: .monospaced))
                                         .foregroundColor(.secondary)
                                     StatusBadge(status: issue.status)
@@ -96,13 +103,17 @@ struct ApprovalDetailSheet: View {
                                 }
                             }
                             .padding(.vertical, 2)
-                        } else {
-                            Text(errorMessage ?? "The issue behind this approval could not be loaded.")
+                        } else if let errorMessage {
+                            Text(errorMessage)
                                 .font(.footnote)
                                 .foregroundColor(.red)
+                        } else {
+                            Text("The issue behind this approval could not be loaded.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
                         }
                     } header: {
-                        Text(source)
+                        Text(sourceIssueLabel ?? "Issue")
                     }
                 } else if let body = approval.payload?.body, !body.isEmpty {
                     Section("Request") {
@@ -156,20 +167,54 @@ struct ApprovalDetailSheet: View {
         }
     }
 
+    /// The label for the issue section: the identifier of the linked issue
+    /// once it is known, and the approval's own reference until then.
+    private var sourceIssueLabel: String? {
+        if let identifier = link?.identifier, !identifier.isEmpty { return identifier }
+        if let payload = approval.payload?.sourceIssue, !payload.isEmpty { return payload }
+        return nil
+    }
+
     private func load() async {
         loading = true
         errorMessage = nil
         let auth = session.credentials
-        guard let source = approval.payload?.sourceIssue, !source.isEmpty else {
+
+        // The board's own link table first, because it is authoritative and
+        // the pending requests do not name their issue in the payload.
+        var links: [ApprovalIssueLink] = []
+        do {
+            links = try await service.approvalIssues(id: approval.id, auth: auth)
+        } catch {
+            errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+        }
+
+        if let first = links.first {
+            link = first
+            do {
+                let loaded = try await service.issue(id: first.id, auth: auth)
+                issue = loaded
+                attachments = (try? await service.attachments(issueId: loaded.id, auth: auth)) ?? []
+            } catch {
+                errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+            }
             loading = false
             return
         }
-        do {
-            let loaded = try await service.issue(id: source, auth: auth)
-            issue = loaded
-            attachments = (try? await service.attachments(issueId: loaded.id, auth: auth)) ?? []
-        } catch {
-            errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+
+        // Fallback for an older request that names its issue in the payload.
+        if let source = approval.payload?.sourceIssue, !source.isEmpty {
+            do {
+                let loaded = try await service.issue(id: source, auth: auth)
+                issue = loaded
+                link = ApprovalIssueLink(id: loaded.id,
+                                         identifier: loaded.identifier,
+                                         title: loaded.title,
+                                         status: loaded.status)
+                attachments = (try? await service.attachments(issueId: loaded.id, auth: auth)) ?? []
+            } catch {
+                errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+            }
         }
         loading = false
     }

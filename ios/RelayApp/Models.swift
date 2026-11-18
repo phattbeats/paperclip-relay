@@ -132,14 +132,29 @@ struct ApprovalPayload: Codable, Hashable {
     let details: String?
     let type: String?
     let issueId: String?
-    /// The issue this request is about, as an identifier (PHA-4914). Only
-    /// request_board_approval carries it, and it is what makes the body of
-    /// the approval loadable.
+    /// The issue this request is about, as an identifier (PHA-4914).
+    ///
+    /// Only some request_board_approval payloads carry it, and the pending
+    /// ones do not — the board keeps that link in its own table. The
+    /// authoritative source is `GET /api/approvals/{id}/issues`, which is
+    /// what the app reads; this is a fallback for older requests.
     let sourceIssue: String?
     let question: String?
     let recommendation: String?
     let recommendedAction: String?
-    let risks: [String]?
+    /// The board writes `risks` as a list of sentences or as one paragraph,
+    /// depending on who wrote the approval. Both are one list to a reader,
+    /// so both are decoded into one list.
+    let riskList: ApprovalRisks?
+
+    enum CodingKeys: String, CodingKey {
+        case title, name, summary, plan, description, command, details, type
+        case issueId, sourceIssue, question, recommendation, recommendedAction
+        case riskList = "risks"
+    }
+
+    /// The risks, as a list, however the board wrote them.
+    var risks: [String] { riskList?.items ?? [] }
 
     /// Approval payload keys differ per approval type, so the human-facing
     /// line is whichever of them happens to be populated.
@@ -163,6 +178,48 @@ struct ApprovalPayload: Codable, Hashable {
         }
         return nil
     }
+}
+
+/// The risks on an approval.
+///
+/// The board writes this field as a list of sentences for some approvals
+/// and as one paragraph for others, so it is decoded either way. Decoding
+/// it as a plain array would fail the whole approvals list, and the board
+/// user would see an empty tab instead of the four requests waiting on
+/// them.
+struct ApprovalRisks: Codable, Hashable {
+    let items: [String]
+
+    init(items: [String]) {
+        self.items = items
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let text = try? container.decode(String.self) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            items = trimmed.isEmpty ? [] : [text]
+        } else {
+            items = try container.decode([String].self)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(items)
+    }
+}
+
+/// An issue an approval is attached to.
+///
+/// The board keeps that link in its own table rather than in the approval
+/// payload, so this is what `GET /api/approvals/{id}/issues` returns: the
+/// issue's identity, not its body. The body is one more call away.
+struct ApprovalIssueLink: Codable, Identifiable, Hashable {
+    let id: String
+    let identifier: String?
+    let title: String?
+    let status: String?
 }
 
 /// A file attached to an issue.
@@ -433,11 +490,13 @@ struct AttentionItem: Codable, Identifiable, Hashable {
     let rank: Double?
     let stale: Bool?
 
-    /// The issue this item is about, when it is about an issue. An
-    /// interaction names its issue in the subject metadata; the other
-    /// sources carry it on the related issue.
+    /// The issue this item is about, when it is about an issue. A question
+    /// and an approval name it in the subject metadata; a review and a
+    /// blocker name the issue as the subject itself; a recovery names it
+    /// as the related issue.
     var issueID: String? {
         if let fromMetadata = subject?.metadata?.issueId { return fromMetadata }
+        if subject?.kind == "issue", let id = subject?.id { return id }
         if let related = relatedIssue { return related.id }
         return nil
     }
@@ -468,7 +527,9 @@ struct AttentionItem: Codable, Identifiable, Hashable {
 /// `GET /api/issues/{id}/interactions`.
 struct PendingInteraction: Identifiable, Hashable {
     let id: String
-    let issueID: String
+    /// The issue the question is on. The board names it in the attention
+    /// item's subject metadata, and it is the id the answer route needs.
+    let issueID: String?
     let issueIdentifier: String?
     let issueTitle: String?
     let title: String?
@@ -478,7 +539,7 @@ struct PendingInteraction: Identifiable, Hashable {
 
     init(item: AttentionItem) {
         self.id = item.subject?.id ?? item.id
-        self.issueID = item.issueID ?? ""
+        self.issueID = item.issueID
         self.issueIdentifier = item.relatedIssue?.identifier
         self.issueTitle = item.relatedIssue?.title
         self.title = item.subject?.title

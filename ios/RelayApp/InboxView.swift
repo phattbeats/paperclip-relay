@@ -82,9 +82,14 @@ struct InboxView: View {
             case .approval(let approval):
                 ApprovalDetailSheet(approval: approval)
             case .interaction(let interaction):
-                InteractionQuestionsSheet(interactionID: interaction.id,
-                                          issueID: interaction.issueID) {
-                    await load()
+                if let issueID = interaction.issueID {
+                    InteractionQuestionsSheet(interactionID: interaction.id,
+                                              issueID: issueID) {
+                        await load()
+                    }
+                } else {
+                    EmptyState(title: "Cannot open",
+                               message: "That question is not attached to an issue.")
                 }
             }
         }

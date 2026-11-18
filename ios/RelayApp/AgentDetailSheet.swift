@@ -91,19 +91,33 @@ struct AgentDetailSheet: View {
                 }
 
                 Section("Model") {
-                    Button {
-                        pickingModel = true
-                    } label: {
-                        HStack {
-                            Text(currentModel ?? "Choose a model")
-                                .foregroundColor(currentModel == nil ? .secondary : .primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
+                    detailRow("Current", currentModel ?? "Not set")
+                    if let effort = configuration?.adapterConfig?.effort, !effort.isEmpty {
+                        detailRow("Effort", effort)
                     }
-                    .disabled(models.isEmpty || working)
+                    if models.isEmpty {
+                        // Some adapters publish a catalog of models and some
+                        // do not: the OpenClaw gateway chooses its own model
+                        // from the session, so the board has nothing to
+                        // offer. Saying so beats a dead button.
+                        Text(modelCatalogNote)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Button {
+                            pickingModel = true
+                        } label: {
+                            HStack {
+                                Text(currentModel ?? "Choose a model")
+                                    .foregroundColor(currentModel == nil ? .secondary : .primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .disabled(working)
+                    }
                 }
 
                 if let errorMessage {
@@ -134,6 +148,20 @@ struct AgentDetailSheet: View {
 
     private var currentModel: String? {
         configuration?.adapterConfig?.model
+    }
+
+    /// The adapter that runs this agent.
+    private var adapterType: String {
+        configuration?.adapterType ?? agent.adapterType ?? ""
+    }
+
+    /// Why there is no model list to pick from.
+    private var modelCatalogNote: String {
+        let type = adapterType
+        guard !type.isEmpty else {
+            return "This agent does not say which adapter runs it, so the board has no model list for it."
+        }
+        return "The \(type) adapter does not publish a model list, so there is nothing to switch to."
     }
 
     private var isPaused: Bool {
@@ -178,7 +206,9 @@ struct AgentDetailSheet: View {
         let auth = session.credentials
         do {
             configuration = try await service.agentConfiguration(id: agent.id, auth: auth)
-            if let type = configuration?.adapterType ?? agent.adapterType, !type.isEmpty {
+            let type = configuration?.adapterType ?? agent.adapterType
+            models = []
+            if let type, !type.isEmpty {
                 models = (try? await service.adapterModels(type: type, auth: auth)) ?? []
             }
         } catch {

@@ -31,24 +31,27 @@ struct PaperclipShape: Shape {
 
         // Down-left to the first bend.
         path.addLine(to: point(7.586, 14.586))
-        path.addArc(center: point(9.0123, 15.9877),
-                    radius: CGFloat(2.0 * scale),
-                    start: -135.498,
-                    end: -314.502)
+        addArc(to: &path,
+               center: point(9.0123, 15.9877),
+               radius: CGFloat(2.0 * scale),
+               start: -135.498,
+               end: -314.502)
 
         // Up-right past the top of the mark.
         path.addLine(to: point(18.828, 8.828))
-        path.addArc(center: point(15.9995, 5.9995),
-                    radius: CGFloat(4.0001 * scale),
-                    start: 45,
-                    end: -135)
+        addArc(to: &path,
+               center: point(15.9995, 5.9995),
+               radius: CGFloat(4.0001 * scale),
+               start: 45,
+               end: -135)
 
         // Down-left to the outermost bend.
         path.addLine(to: point(4.792, 11.722))
-        path.addArc(center: point(9.0287, 15.9703),
-                    radius: CGFloat(6.0 * scale),
-                    start: -134.922,
-                    end: -315.078)
+        addArc(to: &path,
+               center: point(9.0287, 15.9703),
+               radius: CGFloat(6.0 * scale),
+               start: -134.922,
+               end: -315.078)
 
         // And back up to the open end.
         path.addLine(to: point(21.656, 11.656))

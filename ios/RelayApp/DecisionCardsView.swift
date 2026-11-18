@@ -47,9 +47,14 @@ struct DecisionCardsView: View {
         .sheet(item: $sheet) { item in
             switch item {
             case .answering(let interaction):
-                InteractionQuestionsSheet(interactionID: interaction.id,
-                                          issueID: interaction.issueID) {
-                    await onResolve()
+                if let issueID = interaction.issueID {
+                    InteractionQuestionsSheet(interactionID: interaction.id,
+                                              issueID: issueID) {
+                        await onResolve()
+                    }
+                } else {
+                    EmptyState(title: "Cannot open",
+                               message: "That question is not attached to an issue.")
                 }
             case .rejecting(let interaction):
                 ReasonSheet(prompt: "Decline with a reason") { text in
@@ -228,10 +233,15 @@ struct DecisionCardsView: View {
         case "respond":
             sheet = .answering(interaction)
         case "accept":
+            guard let issueID = interaction.issueID else {
+                NotificationCenter.default.post(name: .relayBanner,
+                                                object: "That question is not attached to an issue.")
+                return
+            }
             workingID = interaction.id
             defer { workingID = nil }
             do {
-                try await service.acceptInteraction(issueId: interaction.issueID,
+                try await service.acceptInteraction(issueId: issueID,
                                                     interactionId: interaction.id,
                                                     auth: session.credentials)
                 await onResolve()
@@ -247,10 +257,15 @@ struct DecisionCardsView: View {
     }
 
     private func reject(_ interaction: PendingInteraction, reason: String) async {
+        guard let issueID = interaction.issueID else {
+            NotificationCenter.default.post(name: .relayBanner,
+                                            object: "That question is not attached to an issue.")
+            return
+        }
         workingID = interaction.id
         defer { workingID = nil }
         do {
-            try await service.rejectInteraction(issueId: interaction.issueID,
+            try await service.rejectInteraction(issueId: issueID,
                                                 interactionId: interaction.id,
                                                 reason: reason.isEmpty ? nil : reason,
                                                 auth: session.credentials)
@@ -436,7 +451,10 @@ struct InteractionQuestionsSheet: View {
         errorMessage = nil
         do {
             let all = try await service.interactions(issueId: issueID, auth: session.credentials)
-            interaction = all.first { $0.id == interactionID } ?? all.first
+            // Only the interaction that was asked for. Falling back to
+            // another one on the same issue would put an answer on the
+            // board for a question nobody tapped.
+            interaction = all.first { $0.id == interactionID }
             if interaction == nil {
                 errorMessage = "That question is no longer on the issue."
             }

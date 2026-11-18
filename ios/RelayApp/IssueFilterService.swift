@@ -41,26 +41,44 @@ struct AttentionFeedItem: Codable, Identifiable, Hashable {
     let subject: AttentionFeedSubject?
     let relatedIssue: AttentionFeedIssue?
 
-    /// The issue this item is about. An issue-thread interaction names it
-    /// in the subject metadata; the other sources carry it on the related
-    /// issue.
-    var issueID: String? {
-        if let fromSubject = subject?.metadata?.issueId { return fromSubject }
-        return relatedIssue?.id
+    /// The issue this item is about, if it is about one.
+    ///
+    /// The board names that issue in three different places depending on
+    /// the kind of item: a question and an approval carry it in the
+    /// subject metadata, a review and a blocker name the issue as the
+    /// subject itself, and a recovery names it as the related issue.
+    var issue: AttentionFeedIssue? {
+        if let issueID = subject?.metadata?.issueId {
+            if let related = relatedIssue, related.id == issueID { return related }
+            return AttentionFeedIssue(id: issueID,
+                                       identifier: nil,
+                                       title: subject?.title,
+                                       status: subject?.status)
+        }
+        if subject?.kind == "issue", let id = subject?.id {
+            return AttentionFeedIssue(id: id,
+                                       identifier: subject?.identifier,
+                                       title: subject?.title,
+                                       status: subject?.status)
+        }
+        return relatedIssue
     }
 
-    /// Whether this item is a decision still waiting on an answer, as
-    /// opposed to a status change the board is simply reporting.
-    var isPendingDecision: Bool {
-        guard issueID != nil else { return false }
-        guard let status = subject?.status else { return true }
-        return status == "pending"
+    /// Whether this item is waiting on the board user.
+    ///
+    /// Every item on the attention feed is something that wants a person:
+    /// a question to answer, a review to give, a blocker to clear, a
+    /// request to sign. An item with no issue behind it — an agent in
+    /// error — is on the feed but is not a row in the issue list.
+    var needsAttention: Bool {
+        issue != nil
     }
 }
 
 struct AttentionFeedSubject: Codable, Hashable {
     let kind: String?
     let id: String?
+    let identifier: String?
     let title: String?
     let status: String?
     let metadata: AttentionFeedMetadata?
@@ -120,10 +138,54 @@ final class IssueFilterService {
                              as: InboxFeed.self)
     }
 
-    /// The attention feed: what is waiting on a decision.
+    /// Issues for one of the board user's inbox filters.
+    ///
+    /// The board's own issue list takes the filters its inbox tabs use:
+    /// `unreadForUserId=me`, `touchedByUserId=me` and `attention=blocked`.
+    /// The app's two surfaces read the same endpoints, so the same chip
+    /// carries the same number in both of them.
+    func issues(auth: Credentials, filter: IssueListFilter, limit: Int) async throws -> [Issue] {
+        var query = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "view", value: "index"),
+        ]
+        if let statuses = filter.statuses, !statuses.isEmpty {
+            query.append(URLQueryItem(name: "status", value: statuses.joined(separator: ",")))
+        }
+        if filter.touchedByMe { query.append(URLQueryItem(name: "touchedByUserId", value: "me")) }
+        if filter.unreadForMe { query.append(URLQueryItem(name: "unreadForUserId", value: "me")) }
+        if filter.assignedToMe { query.append(URLQueryItem(name: "assigneeUserId", value: "me")) }
+        if filter.blockedAttention { query.append(URLQueryItem(name: "attention", value: "blocked")) }
+        return try await client.get(companyPath("/issues", auth.companyId),
+                                   query: query,
+                                   auth: auth,
+                                   as: [Issue].self)
+    }
+
+    /// The count of issues that are blocked and want attention.
+    ///
+    /// This one has a dedicated endpoint on the board, and it is the only
+    /// count the board exposes directly — so it is the number the chip
+    /// shows rather than the size of a page.
+    func blockedCount(auth: Credentials) async throws -> Int {
+        struct Count: Decodable { let count: Int }
+        let count = try await client.get(companyPath("/issues/count", auth.companyId),
+                                         query: [URLQueryItem(name: "attention", value: "blocked")],
+                                         auth: auth,
+                                         as: Count.self)
+        return count.count
+    }
+
+    /// The attention feed: what is waiting on the board user.
+    ///
+    /// Scoped to the board user's own desk (`view=mine`), because this is
+    /// the board user's desk and not the company's.
     func attention(auth: Credentials, limit: Int = 100) async throws -> AttentionFeedResponse {
         try await client.get(companyPath("/attention", auth.companyId),
-                             query: [URLQueryItem(name: "limit", value: String(limit))],
+                             query: [
+                                URLQueryItem(name: "view", value: "mine"),
+                                URLQueryItem(name: "limit", value: String(limit)),
+                             ],
                              auth: auth,
                              as: AttentionFeedResponse.self)
     }

@@ -156,6 +156,17 @@ final class BoardService {
                              as: [Decision].self)
     }
 
+    /// The issues an approval is attached to.
+    ///
+    /// The approval payload does not carry the issue — the board keeps that
+    /// link in its own table — so the issue behind a request is read from
+    /// here. Verified live: a pending request_board_approval points at
+    /// exactly one issue, and that issue's body is the thing a person has
+    /// to read before signing.
+    func approvalIssues(id: String, auth: Credentials) async throws -> [ApprovalIssueLink] {
+        try await client.get("/api/approvals/\(id)/issues", auth: auth, as: [ApprovalIssueLink].self)
+    }
+
     /// Files attached to an issue.
     func attachments(issueId: String, auth: Credentials) async throws -> [Attachment] {
         try await client.get("/api/issues/\(issueId)/attachments", auth: auth, as: [Attachment].self)

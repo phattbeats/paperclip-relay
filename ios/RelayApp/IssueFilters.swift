@@ -135,10 +135,11 @@ struct IssueListItem: Identifiable, Hashable {
     }
 
     init(attention item: AttentionFeedItem) {
-        id = item.issueID ?? item.id
-        identifier = item.relatedIssue?.identifier
-        title = item.relatedIssue?.title ?? item.subject?.title ?? "Untitled issue"
-        status = item.relatedIssue?.status ?? item.subject?.status ?? "todo"
+        let issue = item.issue
+        id = issue?.id ?? item.id
+        identifier = issue?.identifier
+        title = issue?.title ?? item.subject?.title ?? "Untitled issue"
+        status = issue?.status ?? item.subject?.status ?? "todo"
         priority = nil
         assigneeAgentId = nil
     }
@@ -184,13 +185,22 @@ final class IssueFilterStore: ObservableObject {
     private var backlogIssues: [Issue] = []
     private var doneIssues: [Issue] = []
     private var allIssues: [Issue] = []
+    private var unreadIssues: [Issue] = []
+    private var blockedIssues: [Issue] = []
+    private var recentIssues: [Issue] = []
     private var inboxIssues: [InboxIssue] = []
     private var attentionItems: [AttentionFeedItem] = []
+
+    /// The board's own count of blocked issues, when it answers.
+    private var blockedTotal: Int?
 
     private var activeOverflow = false
     private var backlogOverflow = false
     private var doneOverflow = false
     private var allOverflow = false
+    private var unreadOverflow = false
+    private var blockedOverflow = false
+    private var recentOverflow = false
     private var inboxOverflow = false
     private var attentionOverflow = false
 
@@ -223,6 +233,10 @@ final class IssueFilterStore: ObservableObject {
     /// Load every dataset the chips count from. The requests run
     /// concurrently; one failing endpoint leaves its chips empty instead
     /// of blanking the tab.
+    ///
+    /// Every chip reads the same endpoint here as it does on the Inbox
+    /// tab. Two surfaces with the same name on a chip and different
+    /// numbers under them is worse than no number at all.
     func refresh(auth: Credentials) async {
         state = .loading
         failures = []
@@ -231,11 +245,25 @@ final class IssueFilterStore: ObservableObject {
         async let backlog = loadIssues(auth, statuses: IssueStatusSet.backlog)
         async let done = loadIssues(auth, statuses: IssueStatusSet.done)
         async let all = loadIssues(auth, statuses: [])
+        async let unread = loadIssues(auth, filter: IssueListFilter(unreadForMe: true))
+        async let blocked = loadIssues(auth, filter: IssueListFilter(blockedAttention: true))
+        async let recent = loadIssues(auth, filter: IssueListFilter(touchedByMe: true))
         async let inbox = loadInbox(auth)
         async let attention = loadAttention(auth)
+        async let blockedCount = loadBlockedCount(auth)
 
-        let (activeResult, backlogResult, doneResult, allResult, inboxResult, attentionResult) =
-            await (active, backlog, done, all, inbox, attention)
+        // The requests above are already in flight; these awaits collect
+        // them one by one rather than in a single tuple.
+        let activeResult = await active
+        let backlogResult = await backlog
+        let doneResult = await done
+        let allResult = await all
+        let unreadResult = await unread
+        let blockedResult = await blocked
+        let recentResult = await recent
+        let inboxResult = await inbox
+        let attentionResult = await attention
+        let blockedTotal = await blockedCount
 
         activeIssues = activeResult.issues
         activeOverflow = activeResult.overflow
@@ -245,10 +273,17 @@ final class IssueFilterStore: ObservableObject {
         doneOverflow = doneResult.overflow
         allIssues = allResult.issues
         allOverflow = allResult.overflow
+        unreadIssues = unreadResult.issues
+        unreadOverflow = unreadResult.overflow
+        blockedIssues = blockedResult.issues
+        blockedOverflow = blockedResult.overflow
+        recentIssues = recentResult.issues
+        recentOverflow = recentResult.overflow
         inboxIssues = inboxResult.issues
         inboxOverflow = inboxResult.overflow
         attentionItems = attentionResult.items
         attentionOverflow = attentionResult.overflow
+        self.blockedTotal = blockedTotal
 
         rebuildCounts()
         rows = makeRows(for: selection)
@@ -289,6 +324,25 @@ final class IssueFilterStore: ObservableObject {
         }
     }
 
+    private func loadIssues(_ auth: Credentials, filter: IssueListFilter) async -> IssueBatch {
+        do {
+            let issues = try await service.issues(auth: auth, filter: filter, limit: limit)
+            return IssueBatch(issues: issues, overflow: issues.count >= limit)
+        } catch {
+            failures.append(Self.message(for: error))
+            return IssueBatch(issues: [], overflow: false)
+        }
+    }
+
+    private func loadBlockedCount(_ auth: Credentials) async -> Int? {
+        do {
+            return try await service.blockedCount(auth: auth)
+        } catch {
+            failures.append(Self.message(for: error))
+            return nil
+        }
+    }
+
     private func loadInbox(_ auth: Credentials) async -> InboxBatch {
         do {
             let feed = try await service.inbox(auth: auth)
@@ -322,42 +376,21 @@ final class IssueFilterStore: ObservableObject {
         counts[.done] = ChipCount(value: doneIssues.count, overflow: doneOverflow)
         counts[.all] = ChipCount(value: allIssues.count, overflow: allOverflow)
 
-        let pendingIssues = attentionItems.filter { $0.isPendingDecision }
-        counts[.needsAttention] = ChipCount(value: Set(pendingIssues.compactMap { $0.issueID }).count,
+        let pendingIssues = attentionItems.filter { $0.needsAttention }
+        counts[.needsAttention] = ChipCount(value: Set(pendingIssues.compactMap { $0.issue?.id }).count,
                                              overflow: attentionOverflow)
 
         counts[.mine] = ChipCount(value: inboxIssues.count, overflow: inboxOverflow)
-        counts[.unread] = ChipCount(value: inboxIssues.filter { $0.isUnreadForMe == true }.count,
-                                     overflow: inboxOverflow)
-        counts[.blocked] = ChipCount(value: inboxIssues.filter { $0.status == "blocked" }.count,
-                                      overflow: inboxOverflow)
-        counts[.recent] = ChipCount(value: inboxIssues.filter { isRecent($0) }.count,
-                                     overflow: inboxOverflow)
-        counts[.everything] = ChipCount(value: deskItems().count,
-                                         overflow: inboxOverflow || attentionOverflow)
+        counts[.unread] = ChipCount(value: unreadIssues.count, overflow: unreadOverflow)
+        // Blocked has a dedicated count on the board, so that is the real
+        // number rather than the size of a page.
+        counts[.blocked] = ChipCount(value: blockedTotal ?? blockedIssues.count,
+                                      overflow: blockedTotal == nil ? blockedOverflow : false)
+        counts[.recent] = ChipCount(value: recentIssues.filter { isRecent($0) }.count,
+                                     overflow: recentOverflow)
+        counts[.everything] = ChipCount(value: allIssues.count, overflow: allOverflow)
 
         self.counts = counts
-    }
-
-    /// Everything that is on the board user's desk: their own inbox, the
-    /// issues waiting on a decision, and anything blocked company-wide.
-    private func deskItems() -> [IssueListItem] {
-        var byId: [String: IssueListItem] = [:]
-        for issue in inboxIssues {
-            byId[issue.id] = IssueListItem(inboxIssue: issue)
-        }
-        for issue in activeIssues where issue.status == "blocked" {
-            if byId[issue.id] == nil {
-                byId[issue.id] = IssueListItem(issue: issue)
-            }
-        }
-        for item in attentionItems where item.isPendingDecision {
-            let row = IssueListItem(attention: item)
-            if byId[row.id] == nil {
-                byId[row.id] = row
-            }
-        }
-        return byId.keys.sorted().compactMap { byId[$0] }
     }
 
     // MARK: - Rows
@@ -374,31 +407,36 @@ final class IssueFilterStore: ObservableObject {
             return allIssues.map(IssueListItem.init(issue:))
         case .needsAttention:
             return attentionItems
-                .filter { $0.isPendingDecision }
+                .filter { $0.needsAttention }
                 .map(IssueListItem.init(attention:))
         case .mine:
             return inboxIssues.map(IssueListItem.init(inboxIssue:))
         case .unread:
-            return inboxIssues
-                .filter { $0.isUnreadForMe == true }
-                .map(IssueListItem.init(inboxIssue:))
+            return unreadIssues.map(IssueListItem.init(issue:))
         case .blocked:
-            return inboxIssues
-                .filter { $0.status == "blocked" }
-                .map(IssueListItem.init(inboxIssue:))
+            return blockedIssues.map(IssueListItem.init(issue:))
         case .recent:
-            return inboxIssues
+            return recentIssues
                 .filter { isRecent($0) }
-                .map(IssueListItem.init(inboxIssue:))
+                .map(IssueListItem.init(issue:))
         case .everything:
-            return deskItems()
+            return allIssues.map(IssueListItem.init(issue:))
         }
     }
 
     // MARK: - Helpers
 
-    private func isRecent(_ issue: InboxIssue) -> Bool {
-        guard let stamp = issue.myLastTouchAt ?? issue.lastActivityAt ?? issue.updatedAt,
+    private func isRecent(_ issue: Issue) -> Bool {
+        isRecent(myLastTouchAt: issue.myLastTouchAt,
+                 lastActivityAt: issue.lastActivityAt,
+                 updatedAt: issue.updatedAt)
+    }
+
+    /// Whether a timestamp falls inside the "recent" window.
+    private func isRecent(myLastTouchAt: String?,
+                          lastActivityAt: String?,
+                          updatedAt: String?) -> Bool {
+        guard let stamp = myLastTouchAt ?? lastActivityAt ?? updatedAt,
               let date = Self.date(from: stamp) else { return false }
         return date.timeIntervalSinceNow > -recentWindow
     }
