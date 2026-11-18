@@ -88,20 +88,42 @@ credential.
 | PATCH | `/api/issues/{id}` | status / priority, with an optional note in the same write |
 | GET | `/api/companies/{id}/live-runs` | what is running now |
 | GET | `/api/companies/{id}/approvals` | pending approvals |
+| GET | `/api/approvals/{id}/issues` | the issue an approval is about |
 | POST | `/api/approvals/{id}/approve` | approve |
 | POST | `/api/approvals/{id}/reject` | reject |
 | GET | `/api/companies/{id}/projects` | project names |
 | GET | `/api/board-api-keys` | key list (settings) |
-| GET | `/api/companies/{id}/attention` | needs-you feed |
+| GET | `/api/companies/{id}/attention?view=mine` | the board user's needs-you feed |
 | GET | `/api/companies/{id}/inbox/mine` | the board user's own inbox |
+| GET | `/api/companies/{id}/issues/count?attention=blocked` | the exact blocked count |
+| GET | `/api/companies/{id}/decisions?status=open` | decisions waiting on a choice |
+| GET | `/api/issues/{id}/interactions` | an issue's questions, with their answers |
+| POST | `/api/issues/{id}/interactions/{interactionId}/respond` | answer them |
+| GET | `/api/issues/{id}/attachments` | files on an issue |
+| GET | `/api/attachments/{id}/content` | the bytes behind one |
+| GET | `/api/agents/{id}/configuration` | an agent's adapter and model |
+| GET | `/api/companies/{id}/adapters/{type}/models` | the models an adapter offers |
 
 Notes:
 
 - The filter chips use the board's own vocabulary, not a new one: *Active*
   is the board's `todo + in_progress + monitoring + in_review + blocked`
-  preset, *Done* is `done + cancelled`, and *Needs attention* is the issues
-  with a pending decision on the attention feed. The inbox chips read the
-  board user's own inbox (`/inbox/mine`).
+  preset, *Done* is `done + cancelled`, and *Needs attention* is the
+  board user's own desk — every item on `/attention?view=mine` that names
+  an issue. The board names that issue in three different places depending
+  on the item (subject metadata for a question or an approval, the subject
+  itself for a review or a blocker, the related issue for a recovery), so
+  the client reads all three.
+- The inbox chips read the board's own filters, the same way the web board
+  does: *Mine* is `/inbox/mine`, *Unread* is `unreadForUserId=me`,
+  *Blocked* is `attention=blocked` (with the board's own exact count from
+  `/issues/count`), *Recent* is `touchedByUserId=me` inside a week, and
+  *Everything* is the whole list. The Issues tab reads the same endpoints
+  for the same chips, so a chip means one thing in both places.
+- An approval does not name its issue in its payload — the pending ones
+  carry no source issue at all. The link is the board's own
+  (`/api/approvals/{id}/issues`), and the payload's `risks` field is
+  either a list or a paragraph depending on who wrote the request.
 - A chip count is a floor, not always a total. The board has well over a
   thousand issues, so the app fetches at most 100 rows per set and marks a
   truncated count with a `+`.
