@@ -4,6 +4,9 @@ struct AgentsView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
 
+    /// The agent whose detail sheet is open.
+    @State private var selected: Agent?
+
     var body: some View {
         NavigationView {
             Group {
@@ -24,7 +27,12 @@ struct AgentsView: View {
                         }
                         Section("Roster") {
                             ForEach(board.agents) { agent in
-                                AgentRow(agent: agent, runCount: runCount(for: agent.id))
+                                Button {
+                                    selected = agent
+                                } label: {
+                                    AgentRow(agent: agent, runCount: runCount(for: agent.id))
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -37,6 +45,9 @@ struct AgentsView: View {
             .navigationTitle("Agents")
         }
         .navigationViewStyle(.stack)
+        .sheet(item: $selected) { agent in
+            AgentDetailSheet(agent: agent)
+        }
     }
 
     private func runCount(for agentID: String) -> Int {

@@ -66,6 +66,11 @@ final class APIClient {
         return try decode(data)
     }
 
+    /// Fetch a resource as bytes rather than JSON — an attachment's content.
+    func getRaw(_ path: String, auth: Credentials) async throws -> Data {
+        try await perform("GET", path, query: [], body: nil, auth: auth)
+    }
+
     func send<T: Decodable>(_ method: String,
                              _ path: String,
                              query: [URLQueryItem] = [],

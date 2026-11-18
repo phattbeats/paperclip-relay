@@ -61,8 +61,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Credentials")
-                } footer: {
-                    Text("Credentials live in the iOS Keychain, not in app storage or a backup. Sign-in sessions last 7 days; a board key lasts as long as its expiry.")
                 }
 
                 if !keys.isEmpty {
@@ -87,9 +85,6 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledRow(label: "Version", value: Bundle.main.appVersion)
                     LabeledRow(label: "Target", value: "iOS 16.0+")
-                    Text("An unsigned build. Sideloaded, not on the App Store.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("Settings")

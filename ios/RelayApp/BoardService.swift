@@ -28,23 +28,6 @@ final class BoardService {
         try await client.get(companyPath("/agents", auth.companyId), auth: auth, as: [Agent].self)
     }
 
-    /// Issue list. `view=index` is the lightweight projection the web UI
-    /// uses — descriptions are null there, which is what we want for a
-    /// phone list; the full body comes from `issue(id:)`.
-    func issues(auth: Credentials, limit: Int = 60, status: String? = nil) async throws -> [Issue] {
-        var query = [
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "view", value: "index"),
-        ]
-        if let status, !status.isEmpty {
-            query.append(URLQueryItem(name: "status", value: status))
-        }
-        return try await client.get(companyPath("/issues", auth.companyId),
-                                   query: query,
-                                   auth: auth,
-                                   as: [Issue].self)
-    }
-
     func issue(id: String, auth: Credentials) async throws -> Issue {
         try await client.get("/api/issues/\(id)", auth: auth, as: Issue.self)
     }
@@ -64,8 +47,143 @@ final class BoardService {
                              as: [Approval].self)
     }
 
-    func attention(auth: Credentials) async throws -> AttentionResponse {
-        try await client.get(companyPath("/attention", auth.companyId), auth: auth, as: AttentionResponse.self)
+    /// The attention feed: what is waiting on the board user.
+    ///
+    /// The live views are `mine`, `unassigned`, `company`, `archived` and
+    /// `all`. The web UI's own inbox tab names (mine/unread/blocked/recent/
+    /// everything) are a client-side composition over several sources, not
+    /// server views — so the app derives them itself in `InboxView`.
+    func attention(auth: Credentials, view: String = "mine", limit: Int = 100) async throws -> AttentionResponse {
+        try await client.get(companyPath("/attention", auth.companyId),
+                             query: [
+                                URLQueryItem(name: "view", value: view),
+                                URLQueryItem(name: "limit", value: String(limit)),
+                             ],
+                             auth: auth,
+                             as: AttentionResponse.self)
+    }
+
+    /// The board user's own inbox: the issues waiting on them.
+    func inbox(auth: Credentials) async throws -> InboxPayload {
+        try await client.get(companyPath("/inbox/mine", auth.companyId), auth: auth, as: InboxPayload.self)
+    }
+
+    /// The issue list, filtered the way the board filters it.
+    ///
+    /// The list endpoint takes a comma-separated `status` set and the
+    /// inbox filters (`touchedByUserId=me`, `unreadForUserId=me`,
+    /// `assigneeUserId=me`, `attention=blocked`). That is what the app's
+    /// filter chips and inbox tabs are built on, rather than a filter
+    /// invented for the phone.
+    func issues(auth: Credentials,
+                limit: Int = 60,
+                statuses: [String]? = nil) async throws -> [Issue] {
+        try await issues(auth: auth,
+                         limit: limit,
+                         offset: 0,
+                         filter: IssueListFilter(statuses: statuses))
+    }
+
+    /// The issue list for a filter.
+    ///
+    /// The board's list endpoint takes a comma-separated `status` set and
+    /// the inbox filters (`touchedByUserId=me`, `unreadForUserId=me`,
+    /// `assigneeUserId=me`, `attention=blocked`). That is what the app's
+    /// inbox tabs are built on, rather than a filter invented for the
+    /// phone.
+    func issues(auth: Credentials,
+                limit: Int = 60,
+                offset: Int = 0,
+                filter: IssueListFilter) async throws -> [Issue] {
+        var query = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "view", value: "index"),
+        ]
+        if offset > 0 { query.append(URLQueryItem(name: "offset", value: String(offset))) }
+        if let statuses = filter.statuses, !statuses.isEmpty {
+            query.append(URLQueryItem(name: "status", value: statuses.joined(separator: ",")))
+        }
+        if filter.touchedByMe { query.append(URLQueryItem(name: "touchedByUserId", value: "me")) }
+        if filter.unreadForMe { query.append(URLQueryItem(name: "unreadForUserId", value: "me")) }
+        if filter.assignedToMe { query.append(URLQueryItem(name: "assigneeUserId", value: "me")) }
+        if filter.blockedAttention { query.append(URLQueryItem(name: "attention", value: "blocked")) }
+        return try await client.get(companyPath("/issues", auth.companyId),
+                                   query: query,
+                                   auth: auth,
+                                   as: [Issue].self)
+    }
+
+    /// The interactions on an issue, with their questions.
+    func interactions(issueId: String, auth: Credentials) async throws -> [Interaction] {
+        try await client.get("/api/issues/\(issueId)/interactions", auth: auth, as: [Interaction].self)
+    }
+
+    /// Answer the questions on an interaction.
+    func respondToInteraction(issueId: String,
+                              interactionId: String,
+                              answers: [InteractionAnswer],
+                              summary: String?,
+                              auth: Credentials) async throws {
+        var body: [String: Any] = [
+            "answers": answers.map { answer -> [String: Any] in
+                var entry: [String: Any] = [
+                    "questionId": answer.questionID,
+                    "optionIds": answer.optionIDs,
+                ]
+                if let other = answer.otherText, !other.isEmpty { entry["otherText"] = other }
+                return entry
+            },
+        ]
+        if let summary, !summary.isEmpty { body["summaryMarkdown"] = summary }
+        try await client.send("POST",
+                              "/api/issues/\(issueId)/interactions/\(interactionId)/respond",
+                              body: body,
+                              auth: auth)
+    }
+
+    /// Decisions awaiting a choice.
+    ///
+    /// The board's decision status vocabulary is `open`, `decided`,
+    /// `expired` and `cancelled`. `open` is the one that means "the board
+    /// still has to answer this".
+    func decisions(auth: Credentials, status: String = "open", limit: Int = 50) async throws -> [Decision] {
+        try await client.get(companyPath("/decisions", auth.companyId),
+                             query: [
+                                URLQueryItem(name: "status", value: status),
+                                URLQueryItem(name: "limit", value: String(limit)),
+                             ],
+                             auth: auth,
+                             as: [Decision].self)
+    }
+
+    /// Files attached to an issue.
+    func attachments(issueId: String, auth: Credentials) async throws -> [Attachment] {
+        try await client.get("/api/issues/\(issueId)/attachments", auth: auth, as: [Attachment].self)
+    }
+
+    /// The count of issues that are blocked and want attention.
+    ///
+    /// This one has a dedicated endpoint, and it is the only count the board
+    /// exposes directly.
+    func blockedCount(auth: Credentials) async throws -> Int {
+        struct Count: Decodable { let count: Int }
+        let count = try await client.get(companyPath("/issues/count", auth.companyId),
+                                         query: [URLQueryItem(name: "attention", value: "blocked")],
+                                         auth: auth,
+                                         as: Count.self)
+        return count.count
+    }
+
+    /// An agent's configuration, which carries the model it runs on.
+    func agentConfiguration(id: String, auth: Credentials) async throws -> AgentConfiguration {
+        try await client.get("/api/agents/\(id)/configuration", auth: auth, as: AgentConfiguration.self)
+    }
+
+    /// The models an adapter can run an agent on.
+    func adapterModels(type: String, auth: Credentials) async throws -> [AdapterModel] {
+        try await client.get(companyPath("/adapters/\(type)/models", auth.companyId),
+                             auth: auth,
+                             as: [AdapterModel].self)
     }
 
     func boardAPIKeys(auth: Credentials) async throws -> [BoardAPIKey] {
@@ -111,6 +229,70 @@ final class BoardService {
         var body: [String: Any] = [:]
         if let note, !note.isEmpty { body["decisionNote"] = note }
         _ = try await client.send("POST", "/api/approvals/\(id)/reject", body: body, auth: auth)
+    }
+
+    // MARK: - Agent control
+
+    /// Pause an agent. Verified live against the board: the agent's status
+    /// becomes `paused` and a `manual` hold appears.
+    func pauseAgent(id: String, auth: Credentials) async throws {
+        try await client.send("POST", "/api/agents/\(id)/pause", body: [:], auth: auth)
+    }
+
+    /// Resume a paused agent.
+    func resumeAgent(id: String, auth: Credentials) async throws {
+        try await client.send("POST", "/api/agents/\(id)/resume", body: [:], auth: auth)
+    }
+
+    /// Change the model an agent runs on.
+    ///
+    /// The board merges a partial `adapterConfig` rather than replacing it,
+    /// so sending only the model leaves the rest of the agent's settings
+    /// alone. Verified live: a partial patch preserved every other key.
+    func updateAgentModel(id: String, model: String, auth: Credentials) async throws {
+        try await client.send("PATCH", "/api/agents/\(id)",
+                              body: ["adapterConfig": ["model": model]],
+                              auth: auth)
+    }
+
+    // MARK: - Decision resolution
+
+    /// Accept a pending issue-thread interaction.
+    func acceptInteraction(issueId: String, interactionId: String, auth: Credentials) async throws {
+        try await client.send("POST",
+                              "/api/issues/\(issueId)/interactions/\(interactionId)/accept",
+                              body: [:],
+                              auth: auth)
+    }
+
+    /// Decline a pending issue-thread interaction, with a reason.
+    func rejectInteraction(issueId: String, interactionId: String, reason: String?, auth: Credentials) async throws {
+        var body: [String: Any] = [:]
+        if let reason, !reason.isEmpty { body["reason"] = reason }
+        try await client.send("POST",
+                              "/api/issues/\(issueId)/interactions/\(interactionId)/reject",
+                              body: body,
+                              auth: auth)
+    }
+
+    /// Choose an option on a pending decision.
+    ///
+    /// `inputValues` carries the text of an option that asks for one; the
+    /// board takes it as a flat map of strings.
+    func decide(id: String,
+                optionId: String,
+                inputValues: [String: String] = [:],
+                auth: Credentials) async throws {
+        var body: [String: Any] = ["optionId": optionId]
+        if !inputValues.isEmpty { body["inputValues"] = inputValues }
+        try await client.send("POST", "/api/decisions/\(id)/decide",
+                              body: body,
+                              auth: auth)
+    }
+
+    /// The attachment's bytes, for a sheet that shows a file inline.
+    func attachmentContent(id: String, auth: Credentials) async throws -> Data {
+        try await client.getRaw("/api/attachments/\(id)/content", auth: auth)
     }
 
     func signIn(baseURL: String, email: String, password: String) async throws -> String {

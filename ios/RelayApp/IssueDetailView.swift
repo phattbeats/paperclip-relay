@@ -15,6 +15,9 @@ struct IssueDetailView: View {
     @State private var newStatus: String?
     @State private var statusNote = ""
     @State private var savingStatus = false
+    @State private var attachments: [Attachment] = []
+    @State private var interactions: [Interaction] = []
+    @State private var answering: Interaction?
 
     private let service = BoardService()
 
@@ -44,10 +47,42 @@ struct IssueDetailView: View {
 
                 if let description = issue.description, !description.isEmpty {
                     Section("Description") {
-                        Text(description)
-                            .font(.callout)
-                            .foregroundColor(.primary)
-                            .textSelection(.enabled)
+                        MarkdownView(source: description)
+                    }
+                }
+
+                if !attachments.isEmpty {
+                    Section("Attachments (\(attachments.count))") {
+                        ForEach(attachments) { attachment in
+                            AttachmentRow(attachment: attachment, auth: session.credentials)
+                        }
+                    }
+                }
+
+                if !interactions.isEmpty {
+                    Section("Questions") {
+                        ForEach(interactions) { interaction in
+                            Button {
+                                answering = interaction
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(interaction.title ?? interaction.kind ?? "Question")
+                                        .font(.callout)
+                                        .foregroundColor(.primary)
+                                    if let prompt = interaction.payload?.prompt {
+                                        Text(prompt)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(3)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    Text(interaction.status ?? "pending")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
 
@@ -128,6 +163,12 @@ struct IssueDetailView: View {
         .navigationTitle(issue?.identifier ?? "Issue")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(item: $answering) { interaction in
+            InteractionQuestionsSheet(interactionID: interaction.id,
+                                      issueID: issueID) {
+                await load()
+            }
+        }
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -146,8 +187,12 @@ struct IssueDetailView: View {
         do {
             async let detail = service.issue(id: issueID, auth: auth)
             async let thread = service.comments(issueId: issueID, auth: auth)
+            async let files = service.attachments(issueId: issueID, auth: auth)
+            async let questions = service.interactions(issueId: issueID, auth: auth)
             issue = try await detail
             comments = try await thread
+            attachments = try await files
+            interactions = (try await questions).filter { $0.status == "pending" }
             newStatus = issue?.status
         } catch {
             errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription

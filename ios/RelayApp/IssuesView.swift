@@ -71,6 +71,21 @@ struct IssuesView: View {
 
     private var list: some View {
         List {
+            // A decision is not an issue. It is a question the board
+            // cannot answer for itself, so it sits above the list as a
+            // card of its own, with the answer attached.
+            if !board.decisions.isEmpty || !board.pendingInteractions.isEmpty {
+                Section {
+                    DecisionCardsView(
+                        decisions: board.decisions,
+                        interactions: board.pendingInteractions,
+                        onResolve: { await refreshBoard() }
+                    )
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
             Section {
                 ForEach(filtered) { item in
                     NavigationLink {
@@ -95,6 +110,12 @@ struct IssuesView: View {
         .refreshable {
             await filters.refresh(auth: session.credentials)
         }
+    }
+
+    /// Reload the decisions and the chip counts after one is resolved.
+    private func refreshBoard() async {
+        await board.refreshDecisions(auth: session.credentials)
+        await filters.refresh(auth: session.credentials)
     }
 
     private var filtered: [IssueListItem] {

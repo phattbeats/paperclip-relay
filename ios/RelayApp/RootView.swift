@@ -1,21 +1,83 @@
 import SwiftUI
+import Combine
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
 
+    /// The board's mark, drawn while the board loads.
+    @State private var splashVisible = true
+
     var body: some View {
-        Group {
-            if session.credentials.isConfigured {
-                MainTabs()
-            } else {
-                SetupView()
+        ZStack {
+            Group {
+                if session.credentials.isConfigured {
+                    MainTabs()
+                } else {
+                    SetupView()
+                }
+            }
+
+            if splashVisible {
+                PaperclipSplashView()
+                    .padding(.bottom, 60)
+                    .transition(.opacity)
+                    .background(Color(uiColor: .systemBackground))
+            }
+
+            if let banner = board.banner {
+                VStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                        Text(banner)
+                            .font(.footnote)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button {
+                            board.banner = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
             }
         }
         .task {
             guard session.credentials.isConfigured else { return }
             await discoverCompany()
             await board.refreshAll(auth: session.credentials)
+        }
+        .task { await handOffFromSplash() }
+        .onReceive(NotificationCenter.default.publisher(for: .relayBanner)) { note in
+            if let message = note.object as? String {
+                board.banner = message
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: board.banner)
+    }
+
+    /// Hide the mark as soon as the board answers, and never later than a
+    /// second and a half — a slow network should not leave the user
+    /// looking at a paperclip.
+    private func handOffFromSplash() async {
+        let deadline = Date().addingTimeInterval(1.5)
+        while splashVisible, Date() < deadline {
+            if board.attentionState == .loaded { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        withAnimation(.easeOut(duration: 0.3)) {
+            splashVisible = false
         }
     }
 
@@ -34,17 +96,18 @@ struct MainTabs: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
 
-    @State private var selection: Int = MainTabs.initialTab
+    @State private var selection: String = MainTabs.initialTab
 
-    /// Tab order: issues, agents, approvals, settings. A launch argument can
-    /// pick the starting tab — that exists for the screenshot run, which
-    /// opens the app once per tab.
-    private static var initialTab: Int {
+    /// Which tab to open on launch. A launch argument can pick the
+    /// starting tab — that exists for the screenshot run, which opens the
+    /// app once per tab. A human always starts on the first tab.
+    private static var initialTab: String {
         switch SessionStore.launchTab {
-        case "agents": return 1
-        case "approvals": return 2
-        case "settings": return 3
-        default: return 0
+        case "inbox": return "inbox"
+        case "agents": return "agents"
+        case "approvals": return "approvals"
+        case "settings": return "settings"
+        default: return "issues"
         }
     }
 
@@ -52,21 +115,32 @@ struct MainTabs: View {
         TabView(selection: $selection) {
             IssuesView()
                 .tabItem { Label("Issues", systemImage: "list.bullet.rectangle") }
-                .tag(0)
+                .tag("issues")
+
+            InboxView()
+                .tabItem { Label("Inbox", systemImage: "tray") }
+                .badge(inboxBadge)
+                .tag("inbox")
 
             AgentsView()
                 .tabItem { Label("Agents", systemImage: "person.2") }
-                .tag(1)
+                .tag("agents")
 
             ApprovalsView()
                 .tabItem { Label("Approvals", systemImage: "checkmark.seal") }
                 .badge(pendingApprovalCount)
-                .tag(2)
+                .tag("approvals")
 
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(3)
+                .tag("settings")
         }
+    }
+
+    /// The number of things waiting on the board user, as the board itself
+    /// counts them.
+    private var inboxBadge: Int {
+        board.attention?.deskBadgeCount ?? 0
     }
 
     private var pendingApprovalCount: Int {
@@ -104,7 +178,7 @@ struct SetupView: View {
                         .font(.system(.footnote, design: .monospaced))
                 }
 
-                Section {
+                Section("Board API key") {
                     SecureField("Board API key (pcp_board_…)", text: $token)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -114,13 +188,9 @@ struct SetupView: View {
                         token = ""
                     }
                     .disabled(token.isEmpty || companyId.isEmpty)
-                } header: {
-                    Text("Board API key")
-                } footer: {
-                    Text("Mint one from the board's API keys page. It can be given a multi-year expiry, so the app keeps working without a weekly re-login.")
                 }
 
-                Section {
+                Section("Or sign in") {
                     TextField("Email", text: $email)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -136,10 +206,6 @@ struct SetupView: View {
                         }
                     }
                     .disabled(email.isEmpty || password.isEmpty || working)
-                } header: {
-                    Text("Or sign in")
-                } footer: {
-                    Text("Signs in for 7 days, then you sign in again. The board key above lasts longer.")
                 }
 
                 if let error {

@@ -35,6 +35,12 @@ final class BoardStore: ObservableObject {
     @Published var liveRuns: [LiveRun] = []
     @Published var projects: [Project] = []
 
+    /// Decisions the board still has to answer.
+    @Published var decisions: [Decision] = []
+
+    /// Agent questions on issue threads, waiting on the board user.
+    @Published var pendingInteractions: [PendingInteraction] = []
+
     @Published var agentsState: LoadState = .idle
     @Published var approvalsState: LoadState = .idle
     @Published var attentionState: LoadState = .idle
@@ -51,9 +57,9 @@ final class BoardStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
     }
 
-    /// Load everything the three tabs read. The five requests run
-    /// concurrently; each one owns its own state and its own error, so one
-    /// failing endpoint does not blank the rest of the app.
+    /// Load everything the three tabs read. The requests run concurrently;
+    /// each one owns its own state and its own error, so one failing
+    /// endpoint does not blank the rest of the app.
     ///
     /// The issue list is not here: the Issues tab owns its own datasets
     /// (`IssueFilterStore`), because it reads one status set at a time
@@ -64,7 +70,9 @@ final class BoardStore: ObservableObject {
         async let attentionLoad = loadAttention(auth)
         async let runsLoad = loadLiveRuns(auth)
         async let projectsLoad = loadProjects(auth)
-        _ = await (agentsLoad, approvalsLoad, attentionLoad, runsLoad, projectsLoad)
+        async let decisionsLoad = loadDecisions(auth)
+        _ = await (agentsLoad, approvalsLoad, attentionLoad, runsLoad,
+                   projectsLoad, decisionsLoad)
     }
 
     func refreshApprovals(auth: Credentials) async {
@@ -72,6 +80,12 @@ final class BoardStore: ObservableObject {
     }
 
     func refreshAttention(auth: Credentials) async {
+        await loadAttention(auth)
+    }
+
+    /// Reload the decisions and the questions waiting on the board user.
+    func refreshDecisions(auth: Credentials) async {
+        await loadDecisions(auth)
         await loadAttention(auth)
     }
 
@@ -98,6 +112,9 @@ final class BoardStore: ObservableObject {
     private func loadAttention(_ auth: Credentials) async {
         do {
             attention = try await service.attention(auth: auth)
+            pendingInteractions = (attention?.items ?? [])
+                .filter { $0.isInteraction }
+                .map(PendingInteraction.init(item:))
             attentionState = .loaded
         } catch {
             attentionState = .failed(Self.message(for: error))
@@ -116,6 +133,14 @@ final class BoardStore: ObservableObject {
     private func loadProjects(_ auth: Credentials) async {
         do {
             projects = try await service.projects(auth: auth)
+        } catch {
+            banner = Self.message(for: error)
+        }
+    }
+
+    private func loadDecisions(_ auth: Credentials) async {
+        do {
+            decisions = try await service.decisions(auth: auth)
         } catch {
             banner = Self.message(for: error)
         }
