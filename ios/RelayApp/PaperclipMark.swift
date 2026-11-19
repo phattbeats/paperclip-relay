@@ -207,9 +207,13 @@ struct PaperclipSplashView: View {
     var size: CGFloat = 88
     var lineWidth: CGFloat = 3
 
+    /// Anchor the loop to this instance, rather than the wall clock, so a
+    /// fresh launch always begins at the board's zero-length keyframe.
+    @State private var startedAt = Date()
+
     var body: some View {
         TimelineView(.animation) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate
+            let phase = context.date.timeIntervalSince(startedAt)
                 .truncatingRemainder(dividingBy: 1.0)
             PaperclipShape()
                 .trim(from: 0, to: PaperclipMark.trim(at: phase))

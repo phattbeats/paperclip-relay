@@ -20,10 +20,14 @@ struct RootView: View {
             }
 
             if splashVisible {
-                PaperclipSplashView()
-                    .padding(.bottom, 60)
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+                    .overlay {
+                        PaperclipSplashView()
+                            .padding(.bottom, 60)
+                    }
                     .transition(.opacity)
-                    .background(Color(uiColor: .systemBackground))
+                    .zIndex(2)
             }
 
             if let banner = board.banner {
@@ -67,15 +71,13 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.25), value: board.banner)
     }
 
-    /// Hide the mark as soon as the board answers, and never later than a
-    /// second and a half — a slow network should not leave the user
-    /// looking at a paperclip.
+    /// Keep the board hidden for one complete mark cycle.  That guarantees
+    /// the launch state begins at the path's first keyframe and visibly hands
+    /// off only after the draw/hold/erase sequence has completed; network
+    /// speed must not skip the animation.
     private func handOffFromSplash() async {
-        let deadline = Date().addingTimeInterval(1.5)
-        while splashVisible, Date() < deadline {
-            if board.attentionState == .loaded { break }
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        guard !Task.isCancelled else { return }
         withAnimation(.easeOut(duration: 0.3)) {
             splashVisible = false
         }
