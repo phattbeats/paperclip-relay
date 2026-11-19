@@ -4,12 +4,17 @@ import SwiftUI
 struct RelayApp: App {
     @StateObject private var session = SessionStore()
     @StateObject private var board = BoardStore()
+    /// One source for the board views and the Inbox queue. Keeping this at
+    /// app scope prevents each tab from independently fetching the same
+    /// five inbox datasets and then disagreeing about a count.
+    @StateObject private var issueFilters = IssueFilterStore()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(session)
                 .environmentObject(board)
+                .environmentObject(issueFilters)
                 .tint(Color.accentColor)
         }
     }
