@@ -48,9 +48,12 @@ struct RootView: View {
                         .buttonStyle(.plain)
                     }
                     .padding(12)
-                    .background(Color.secondary.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                     .padding(.horizontal, 12)
-                    .padding(.top, 4)
+                    // Sits below the status bar and navigation chrome, so it
+                    // never covers the issue controls.
+                    .padding(.top, 56)
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))

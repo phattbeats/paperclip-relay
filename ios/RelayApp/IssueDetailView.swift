@@ -226,7 +226,13 @@ struct IssueDetailView: View {
         do {
             try await service.postComment(issueId: issueID, body: text, auth: session.credentials)
             draft = ""
-            comments = (try? await service.comments(issueId: issueID, auth: session.credentials)) ?? comments
+            // The post succeeded, so the thread must show it. Refresh the list;
+            // if that read fails, say so rather than leaving the old list in place.
+            do {
+                comments = try await service.comments(issueId: issueID, auth: session.credentials)
+            } catch {
+                board.banner = "Comment posted, but the thread did not refresh. Pull to reload."
+            }
         } catch {
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
         }
