@@ -40,6 +40,7 @@ struct AttentionFeedItem: Codable, Identifiable, Hashable {
     let sourceKind: String
     let subject: AttentionFeedSubject?
     let relatedIssue: AttentionFeedIssue?
+    let decisionVerbs: [DecisionVerb]?
 
     /// The issue this item is about, if it is about one.
     ///
@@ -85,6 +86,7 @@ struct AttentionFeedSubject: Codable, Hashable {
 }
 
 struct AttentionFeedMetadata: Codable, Hashable {
+    let kind: String?
     let issueId: String?
 }
 

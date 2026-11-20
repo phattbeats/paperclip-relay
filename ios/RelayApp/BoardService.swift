@@ -143,10 +143,10 @@ final class BoardService {
 
     /// Decisions awaiting a choice.
     ///
-    /// The board's decision status vocabulary is `open`, `decided`,
-    /// `expired` and `cancelled`. `open` is the one that means "the board
-    /// still has to answer this".
-    func decisions(auth: Credentials, status: String = "open", limit: Int = 50) async throws -> [Decision] {
+    /// Pending decisions are the choices currently waiting on the board
+    /// user. The API returns the question body and its options together,
+    /// which lets the Issues tab render the card without another fetch.
+    func decisions(auth: Credentials, status: String = "pending", limit: Int = 50) async throws -> [Decision] {
         try await client.get(companyPath("/decisions", auth.companyId),
                              query: [
                                 URLQueryItem(name: "status", value: status),
