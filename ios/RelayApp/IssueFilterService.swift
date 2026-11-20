@@ -86,6 +86,7 @@ struct AttentionFeedSubject: Codable, Hashable {
 }
 
 struct AttentionFeedMetadata: Codable, Hashable {
+    let kind: String?
     let issueId: String?
 }
 
