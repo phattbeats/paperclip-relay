@@ -210,6 +210,38 @@ final class BoardService {
         try await client.get(companyPath("/projects", auth.companyId), auth: auth, as: [Project].self)
     }
 
+    /// Company-level operational data for the phone's console. These are
+    /// read-only summaries from the board, not locally-derived guesses.
+    func dashboard(auth: Credentials) async throws -> CompanyDashboard {
+        try await client.get(companyPath("/dashboard", auth.companyId), auth: auth, as: CompanyDashboard.self)
+    }
+
+    func goals(auth: Credentials) async throws -> [CompanyGoal] {
+        try await client.get(companyPath("/goals", auth.companyId), auth: auth, as: [CompanyGoal].self)
+    }
+
+    func organization(auth: Credentials) async throws -> [CompanyOrgNode] {
+        try await client.get(companyPath("/org", auth.companyId), auth: auth, as: [CompanyOrgNode].self)
+    }
+
+    func activity(auth: Credentials) async throws -> [CompanyActivity] {
+        try await client.get(companyPath("/activity", auth.companyId), auth: auth, as: [CompanyActivity].self)
+    }
+
+    func routines(auth: Credentials) async throws -> [CompanyRoutine] {
+        try await client.get(companyPath("/routines", auth.companyId), auth: auth, as: [CompanyRoutine].self)
+    }
+
+    func search(auth: Credentials, query: String, limit: Int = 25) async throws -> CompanySearchResponse {
+        try await client.get(companyPath("/search", auth.companyId),
+                             query: [
+                                URLQueryItem(name: "q", value: query),
+                                URLQueryItem(name: "limit", value: String(limit)),
+                             ],
+                             auth: auth,
+                             as: CompanySearchResponse.self)
+    }
+
     // MARK: - Write
 
     /// Post a comment. The server returns the created comment, so the
@@ -236,6 +268,24 @@ final class BoardService {
         if let priority { body["priority"] = priority }
         if let comment, !comment.isEmpty { body["comment"] = comment }
         return try await client.send("PATCH", "/api/issues/\(id)", body: body, auth: auth, as: Issue.self)
+    }
+
+    /// File work from the phone. New work starts in todo so it appears in
+    /// the board's active view instead of disappearing into backlog.
+    @discardableResult
+    func createIssue(title: String,
+                     description: String?,
+                     priority: String,
+                     assigneeAgentId: String?,
+                     auth: Credentials) async throws -> Issue {
+        var body: [String: Any] = [
+            "title": title,
+            "priority": priority,
+            "status": "todo",
+        ]
+        if let description, !description.isEmpty { body["description"] = description }
+        if let assigneeAgentId, !assigneeAgentId.isEmpty { body["assigneeAgentId"] = assigneeAgentId }
+        return try await client.send("POST", companyPath("/issues", auth.companyId), body: body, auth: auth, as: Issue.self)
     }
 
     func approve(id: String, note: String?, auth: Credentials) async throws {
@@ -272,6 +322,31 @@ final class BoardService {
         try await client.send("PATCH", "/api/agents/\(id)",
                               body: ["adapterConfig": ["model": model]],
                               auth: auth)
+    }
+
+    /// A manual routine run can create real work and spend tokens, so the UI
+    /// always puts a confirmation in front of this call.
+    func runRoutine(id: String, auth: Credentials) async throws {
+        try await client.send("POST", "/api/routines/\(id)/run", body: ["source": "manual"], auth: auth)
+    }
+
+    /// Schedule changes are reversible and let an operator stop a noisy
+    /// automation without needing a laptop.
+    func setRoutineTrigger(id: String, enabled: Bool, auth: Credentials) async throws {
+        try await client.send("PATCH", "/api/routine-triggers/\(id)", body: ["enabled": enabled], auth: auth)
+    }
+
+    /// Board keys are company-admin credentials. The console uses these only
+    /// through explicit, guarded UI flows; it never logs their secret value.
+    func createBoardAPIKey(name: String, expiresAt: String, auth: Credentials) async throws -> CreatedBoardAPIKey {
+        try await client.send("POST", "/api/board-api-keys",
+                              body: ["name": name, "expiresAt": expiresAt, "requestedCompanyId": auth.companyId],
+                              auth: auth,
+                              as: CreatedBoardAPIKey.self)
+    }
+
+    func revokeBoardAPIKey(id: String, auth: Credentials) async throws {
+        try await client.send("DELETE", "/api/board-api-keys/\(id)", body: nil, auth: auth)
     }
 
     // MARK: - Decision resolution

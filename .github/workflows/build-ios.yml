@@ -199,7 +199,7 @@ jobs:
           mkdir -p screenshots
           CONTAINER=$(xcrun simctl get_app_container "$UDID" tech.phatt.papercliprelay data)
           mkdir -p "$CONTAINER/Documents"
-          for tab in issues agents approvals; do
+          for tab in issues console agents approvals; do
             xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
             # The app cannot be typed into, so the configuration is written
             # into its container as a bootstrap file. The environment is

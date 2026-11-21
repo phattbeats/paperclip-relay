@@ -91,10 +91,10 @@ struct MainTabs: View {
     /// app once per tab. A human always starts on the first tab.
     private static var initialTab: String {
         switch SessionStore.launchTab {
+        case "console": return "console"
         case "inbox": return "inbox"
         case "agents": return "agents"
         case "approvals": return "approvals"
-        case "settings": return "settings"
         default: return "issues"
         }
     }
@@ -104,6 +104,10 @@ struct MainTabs: View {
             IssuesView()
                 .tabItem { Label("Issues", systemImage: "list.bullet.rectangle") }
                 .tag("issues")
+
+            ConsoleView()
+                .tabItem { Label("Company", systemImage: "chart.bar.xaxis") }
+                .tag("console")
 
             InboxView()
                 .tabItem { Label("Inbox", systemImage: "tray") }
@@ -119,9 +123,6 @@ struct MainTabs: View {
                 .badge(pendingApprovalCount)
                 .tag("approvals")
 
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag("settings")
         }
     }
 

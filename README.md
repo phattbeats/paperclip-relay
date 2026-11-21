@@ -9,7 +9,12 @@ and reachable from any client, so the missing piece was the client, not the serv
 
 ## What it does
 
-Three tabs, all against the board's REST API:
+Five phone-first surfaces, all against the board's REST API:
+
+- **Company** — a live operator pulse: agents, open/blocked work, spend,
+  approvals, goals, org, recent activity and routine controls. It has board-wide
+  search and can file a new issue without opening a laptop. A manual routine
+  run requires confirmation; board-key creation/revocation remains web-only.
 
 - **Issues** — the board's own task views as a chip row, no menu: *Needs
   attention*, *All*, *Active*, *Backlog*, *Done*, plus the board user's inbox
@@ -20,7 +25,8 @@ Three tabs, all against the board's REST API:
 - **Agents** — the roster with live status, plus what is running right now.
 - **Approvals** — pending board approvals with approve/reject and a decision note.
 
-Plus settings for the server URL, the company id, and credentials.
+Settings is available from the Company tab's gear: server URL, company id,
+and credentials remain in the iOS Keychain.
 
 ## Requirements
 
@@ -80,6 +86,15 @@ credential.
 |---|---|---|
 | GET | `/api/companies` | company discovery (finds the company id) |
 | GET | `/api/companies/{id}/agents` | agent roster |
+| GET | `/api/companies/{id}/dashboard` | company health, work and cost pulse |
+| GET | `/api/companies/{id}/goals` | company goals |
+| GET | `/api/companies/{id}/org` | reporting hierarchy |
+| GET | `/api/companies/{id}/activity` | recent company activity |
+| GET | `/api/companies/{id}/routines` | routine controls |
+| PATCH | `/api/routine-triggers/{id}` | pause/resume a schedule |
+| POST | `/api/routines/{id}/run` | confirmed manual routine run |
+| GET | `/api/companies/{id}/search` | board-wide search |
+| POST | `/api/companies/{id}/issues` | file a new issue |
 | GET | `/api/companies/{id}/issues?view=index` | issue list (lightweight projection) |
 | GET | `/api/companies/{id}/issues?view=index&status=a,b` | one status set at a time, for the filter chips |
 | GET | `/api/issues/{id}` | issue detail |

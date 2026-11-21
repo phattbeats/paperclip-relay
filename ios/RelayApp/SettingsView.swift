@@ -73,6 +73,8 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
+                    } footer: {
+                        Text("Relay lists company-admin keys for audit only. Creating or revoking keys stays in the web board: a phone should not casually mint credentials or lock another device out.")
                     }
                 }
 
