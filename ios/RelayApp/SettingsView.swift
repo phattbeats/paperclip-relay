@@ -88,6 +88,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .relayBannerInset()
             .task {
                 companyIdDraft = session.companyId
                 await loadKeys()

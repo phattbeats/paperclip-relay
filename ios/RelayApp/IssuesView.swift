@@ -7,6 +7,9 @@ struct IssuesView: View {
     @EnvironmentObject private var filters: IssueFilterStore
 
     @State private var search = ""
+    /// The issue the screenshot run asked to open on launch.
+    @State private var deepLinkedIssue: String?
+    @State private var deepLinkActive = false
 
     var body: some View {
         NavigationView {
@@ -28,12 +31,23 @@ struct IssuesView: View {
             }
             .navigationTitle("Issues")
             .searchable(text: $search, prompt: "Search titles")
-            .safeAreaInset(edge: .top, spacing: 0) { filterHeader }
+            // The banner and the filter chips share one top inset so they
+            // stack instead of overlapping each other.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    RelayBannerView()
+                    filterHeader
+                }
+            }
         }
         .navigationViewStyle(.stack)
         .task {
             if filters.state == .idle {
                 await filters.refresh(auth: session.credentials)
+            }
+            if deepLinkedIssue == nil, let requested = SessionStore.launchIssue {
+                deepLinkedIssue = requested
+                deepLinkActive = true
             }
         }
     }
@@ -95,6 +109,16 @@ struct IssuesView: View {
                     } label: {
                         IssueRow(item: item, agentName: board.agentById[item.assigneeAgentId ?? ""]?.name)
                     }
+                }
+                // The screenshot run opens a specific issue on launch. This
+                // link carries that push; it has no visible label.
+                if deepLinkedIssue != nil {
+                    NavigationLink(isActive: $deepLinkActive) {
+                        IssueDetailView(issueID: deepLinkedIssue ?? "")
+                    } label: {
+                        EmptyView()
+                    }
+                    .hidden()
                 }
                 if let notice = filters.notice {
                     Text(notice)

@@ -54,6 +54,7 @@ struct ApprovalsView: View {
                 }
             }
             .navigationTitle("Approvals")
+            .relayBannerInset()
         }
         .navigationViewStyle(.stack)
         .sheet(item: $sheet) { sheet in

@@ -41,6 +41,7 @@ struct InboxView: View {
                 content
             }
             .navigationTitle("Inbox")
+            .relayBannerInset()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

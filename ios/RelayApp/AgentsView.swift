@@ -43,6 +43,7 @@ struct AgentsView: View {
                 }
             }
             .navigationTitle("Agents")
+            .relayBannerInset()
         }
         .navigationViewStyle(.stack)
         .sheet(item: $selected) { agent in

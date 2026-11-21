@@ -207,12 +207,15 @@ final class BoardService {
 
     // MARK: - Write
 
-    func postComment(issueId: String, body: String, auth: Credentials) async throws {
-        _ = try await client.send("POST",
-                                  "/api/issues/\(issueId)/comments",
-                                  body: ["body": body],
-                                  auth: auth,
-                                  as: IssueComment.self)
+    /// Post a comment. The server returns the created comment, so the
+    /// caller can show it without waiting for a second round trip.
+    @discardableResult
+    func postComment(issueId: String, body: String, auth: Credentials) async throws -> IssueComment {
+        try await client.send("POST",
+                              "/api/issues/\(issueId)/comments",
+                              body: ["body": body],
+                              auth: auth,
+                              as: IssueComment.self)
     }
 
     /// Update an issue. A `comment` in the same call is created in the same

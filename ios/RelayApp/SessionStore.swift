@@ -121,8 +121,9 @@ final class SessionStore: ObservableObject {
 
     /// Read `relay-config.json` from the app's Documents directory.
     ///
-    /// Keys: `baseURL`, `companyId`, `boardToken`, `initialTab`. It is a
-    /// bootstrap path for automated runs, not a settings store — the app
+    /// Keys: `baseURL`, `companyId`, `boardToken`, `initialTab`, and the
+    /// optional `initialIssue` / `banner` used by the screenshot run. It is
+    /// a bootstrap path for automated runs, not a settings store — the app
     /// never writes it, and a real install never has it.
     private static func bootstrapConfig() -> [String: String]? {
         guard let documents = FileManager.default
@@ -135,6 +136,24 @@ final class SessionStore: ObservableObject {
             if let text = value as? String { config[key] = text }
         }
         return config
+    }
+
+    /// The issue to open on launch, and the banner to show over it. Both
+    /// exist for the screenshot run: the run needs a capture of the issue
+    /// detail screen with a toast on it, and it cannot tap or type to get
+    /// there. A human always starts on the first tab with no banner.
+    static var launchIssue: String? {
+        let value = ProcessInfo.processInfo.environment["RELAY_INITIAL_ISSUE"]
+            ?? Self.bootstrapConfig()?["initialIssue"]
+            ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    static var launchBanner: String? {
+        let value = ProcessInfo.processInfo.environment["RELAY_INITIAL_BANNER"]
+            ?? Self.bootstrapConfig()?["banner"]
+            ?? ""
+        return value.isEmpty ? nil : value
     }
 
     var boardToken: String? {

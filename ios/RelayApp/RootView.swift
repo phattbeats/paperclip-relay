@@ -30,35 +30,6 @@ struct RootView: View {
                     .zIndex(2)
             }
 
-            if let banner = board.banner {
-                VStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                        Text(banner)
-                            .font(.footnote)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer()
-                        Button {
-                            board.banner = nil
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption2)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(12)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-                    .padding(.horizontal, 12)
-                    // Sits below the status bar and navigation chrome, so it
-                    // never covers the issue controls.
-                    .padding(.top, 56)
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(1)
-            }
         }
         .task {
             guard session.credentials.isConfigured else { return }
@@ -66,6 +37,16 @@ struct RootView: View {
             await board.refreshAll(auth: session.credentials)
         }
         .task { await handOffFromSplash() }
+        // The banner is drawn by each screen as a safe-area inset, so it has
+        // its own space and never covers the navigation bar or the controls
+        // underneath it. See RelayBannerView.
+        .task {
+            // The screenshot run asks for a banner on launch so the capture
+            // shows the toast in place. A human never gets one.
+            if let banner = SessionStore.launchBanner, board.banner == nil {
+                board.banner = banner
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .relayBanner)) { note in
             if let message = note.object as? String {
                 board.banner = message

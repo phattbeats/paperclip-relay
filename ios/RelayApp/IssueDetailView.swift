@@ -162,6 +162,9 @@ struct IssueDetailView: View {
         }
         .navigationTitle(issue?.identifier ?? "Issue")
         .navigationBarTitleDisplayMode(.inline)
+        // The toast gets its own space below the navigation bar instead of
+        // covering the issue controls.
+        .relayBannerInset()
         .task { await load() }
         .sheet(item: $answering) { interaction in
             InteractionQuestionsSheet(interactionID: interaction.id,
@@ -224,14 +227,22 @@ struct IssueDetailView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         do {
-            try await service.postComment(issueId: issueID, body: text, auth: session.credentials)
+            // The server returns the comment it created. Show it right away
+            // instead of waiting on a second round trip that may fail or
+            // lag behind the write.
+            let created = try await service.postComment(issueId: issueID, body: text, auth: session.credentials)
             draft = ""
-            // The post succeeded, so the thread must show it. Refresh the list;
-            // if that read fails, say so rather than leaving the old list in place.
+            if !comments.contains(where: { $0.id == created.id }) {
+                // The board serves the newest comment first, so match that.
+                comments.insert(created, at: 0)
+            }
+            // Then reconcile with the board. A failed read is not a failed
+            // post: the comment is already on screen.
             do {
-                comments = try await service.comments(issueId: issueID, auth: session.credentials)
+                let thread = try await service.comments(issueId: issueID, auth: session.credentials)
+                comments = thread
             } catch {
-                board.banner = "Comment posted, but the thread did not refresh. Pull to reload."
+                board.banner = "Comment posted. The thread could not be re-read."
             }
         } catch {
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
