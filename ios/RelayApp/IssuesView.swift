@@ -9,12 +9,20 @@ struct IssuesView: View {
     @State private var search = ""
     /// The issue the screenshot run asked to open on launch.
     @State private var deepLinkedIssue: String?
-    @State private var deepLinkActive = false
 
     var body: some View {
         NavigationView {
             Group {
-                if filters.state == .loading && filters.rows.isEmpty {
+                if let deepLinkedIssue {
+                    // The screenshot run opens a specific issue on launch.
+                    // It renders the detail screen directly rather than
+                    // pushing it: a NavigationLink activated at launch does
+                    // not reliably push, and the capture then shows the
+                    // list instead of the screen it was meant to prove.
+                    IssueDetailView(issueID: deepLinkedIssue)
+                        .navigationTitle("Issue")
+                        .navigationBarTitleDisplayMode(.inline)
+                } else if filters.state == .loading && filters.rows.isEmpty {
                     ProgressView()
                 } else if filters.rows.isEmpty {
                     EmptyState(
@@ -32,11 +40,15 @@ struct IssuesView: View {
             .navigationTitle("Issues")
             .searchable(text: $search, prompt: "Search titles")
             // The banner and the filter chips share one top inset so they
-            // stack instead of overlapping each other.
+            // stack instead of overlapping each other. When the detail
+            // screen is rendered directly (the screenshot run), it carries
+            // its own banner inset and has no filter chips above it.
             .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(spacing: 0) {
-                    RelayBannerView()
-                    filterHeader
+                if deepLinkedIssue == nil {
+                    VStack(spacing: 0) {
+                        RelayBannerView()
+                        filterHeader
+                    }
                 }
             }
         }
@@ -47,7 +59,6 @@ struct IssuesView: View {
             }
             if deepLinkedIssue == nil, let requested = SessionStore.launchIssue {
                 deepLinkedIssue = requested
-                deepLinkActive = true
             }
         }
     }
@@ -109,16 +120,6 @@ struct IssuesView: View {
                     } label: {
                         IssueRow(item: item, agentName: board.agentById[item.assigneeAgentId ?? ""]?.name)
                     }
-                }
-                // The screenshot run opens a specific issue on launch. This
-                // link carries that push; it has no visible label.
-                if deepLinkedIssue != nil {
-                    NavigationLink(isActive: $deepLinkActive) {
-                        IssueDetailView(issueID: deepLinkedIssue ?? "")
-                    } label: {
-                        EmptyView()
-                    }
-                    .hidden()
                 }
                 if let notice = filters.notice {
                     Text(notice)

@@ -146,7 +146,12 @@ final class BoardService {
     /// Pending decisions are the choices currently waiting on the board
     /// user. The API returns the question body and its options together,
     /// which lets the Issues tab render the card without another fetch.
-    func decisions(auth: Credentials, status: String = "pending", limit: Int = 50) async throws -> [Decision] {
+    ///
+    /// The board's own vocabulary for a waiting decision is `open` — its
+    /// accepted values are `open`, `decided`, `expired` and `cancelled`.
+    /// Sending `pending` is a 400, and that error used to surface as a
+    /// banner over the Issues tab on every launch.
+    func decisions(auth: Credentials, status: String = "open", limit: Int = 50) async throws -> [Decision] {
         try await client.get(companyPath("/decisions", auth.companyId),
                              query: [
                                 URLQueryItem(name: "status", value: status),
