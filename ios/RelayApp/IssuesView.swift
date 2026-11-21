@@ -12,39 +12,35 @@ struct IssuesView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if let deepLinkedIssue {
-                    // The screenshot run opens a specific issue on launch.
-                    // It renders the detail screen directly rather than
-                    // pushing it: a NavigationLink activated at launch does
-                    // not reliably push, and the capture then shows the
-                    // list instead of the screen it was meant to prove.
-                    IssueDetailView(issueID: deepLinkedIssue)
-                        .navigationTitle("Issue")
-                        .navigationBarTitleDisplayMode(.inline)
-                } else if filters.state == .loading && filters.rows.isEmpty {
-                    ProgressView()
-                } else if filters.rows.isEmpty {
-                    EmptyState(
-                        title: filters.errorMessage == nil ? "Nothing here" : "Could not load issues",
-                        message: filters.errorMessage ?? "No issues match \(filters.selection.title).",
-                        actionTitle: "Reload",
-                        action: {
-                            Task { await filters.refresh(auth: session.credentials) }
-                        }
-                    )
-                } else {
-                    list
+            if let deepLinkedIssue {
+                // The screenshot run opens a specific issue on launch.
+                // It renders the detail screen directly rather than
+                // pushing it: a NavigationLink activated at launch does
+                // not reliably push, and the capture then shows the
+                // list instead of the screen it was meant to prove.
+                IssueDetailView(issueID: deepLinkedIssue)
+                    .navigationBarTitleDisplayMode(.inline)
+            } else {
+                Group {
+                    if filters.state == .loading && filters.rows.isEmpty {
+                        ProgressView()
+                    } else if filters.rows.isEmpty {
+                        EmptyState(
+                            title: filters.errorMessage == nil ? "Nothing here" : "Could not load issues",
+                            message: filters.errorMessage ?? "No issues match \(filters.selection.title).",
+                            actionTitle: "Reload",
+                            action: {
+                                Task { await filters.refresh(auth: session.credentials) }
+                            }
+                        )
+                    } else {
+                        list
+                    }
                 }
-            }
-            .navigationTitle("Issues")
-            .searchable(text: $search, prompt: "Search titles")
-            // The banner and the filter chips share one top inset so they
-            // stack instead of overlapping each other. When the detail
-            // screen is rendered directly (the screenshot run), it carries
-            // its own banner inset and has no filter chips above it.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if deepLinkedIssue == nil {
+                .navigationTitle("Issues")
+                // The banner and the filter chips share one top inset so they
+                // stack instead of overlapping each other.
+                .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
                         RelayBannerView()
                         filterHeader
@@ -134,6 +130,7 @@ struct IssuesView: View {
             }
         }
         .listStyle(.plain)
+        .searchable(text: $search, prompt: "Search titles")
         .refreshable {
             await filters.refresh(auth: session.credentials)
         }

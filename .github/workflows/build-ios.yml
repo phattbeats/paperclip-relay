@@ -190,10 +190,10 @@ jobs:
           RELAY_COMPANY_ID: ${{ secrets.RELAY_COMPANY_ID }}
           RELAY_BASE_URL: https://paperclip.phatt.vip
           # The issue whose detail screen is captured with the toast on it,
-          # and the toast text. Both are fixed so the capture is comparable
-          # across runs.
+          # and the toast text. The toast names the issue's real status so
+          # the capture does not contradict the status badge on screen.
           RELAY_CAPTURE_ISSUE_ID: 8f2c582b-9f54-47fa-9f34-768a198edd97
-          RELAY_CAPTURE_BANNER: "Status set to todo."
+          RELAY_CAPTURE_BANNER: "Status set to in review."
         run: |
           set -euo pipefail
           mkdir -p screenshots
