@@ -12,8 +12,9 @@ struct RelayBannerView: View {
     var body: some View {
         if let banner = board.banner {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: board.bannerIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                     .font(.caption)
+                    .foregroundColor(board.bannerIsError ? Color.orange : Color.green)
                 Text(banner)
                     .font(.footnote)
                     .fixedSize(horizontal: false, vertical: true)

@@ -52,6 +52,12 @@ final class BoardStore: ObservableObject {
 
     @Published var banner: String?
 
+    /// Whether the current banner reports a failure or a confirmation.
+    /// A confirmation ("Status set to todo.") gets a checkmark; a failure
+    /// gets the warning triangle. Without this, a success message wears an
+    /// error icon and reads as a problem.
+    @Published var bannerIsError: Bool = true
+
     private let service = BoardService()
 
     var agentById: [String: Agent] {
@@ -100,6 +106,7 @@ final class BoardStore: ObservableObject {
             agentsState = .loaded
         } catch {
             agentsState = .failed(Self.message(for: error))
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }
@@ -110,6 +117,7 @@ final class BoardStore: ObservableObject {
             approvalsState = .loaded
         } catch {
             approvalsState = .failed(Self.message(for: error))
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }
@@ -123,6 +131,7 @@ final class BoardStore: ObservableObject {
             attentionState = .loaded
         } catch {
             attentionState = .failed(Self.message(for: error))
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }
@@ -131,6 +140,7 @@ final class BoardStore: ObservableObject {
         do {
             liveRuns = try await service.liveRuns(auth: auth)
         } catch {
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }
@@ -139,6 +149,7 @@ final class BoardStore: ObservableObject {
         do {
             projects = try await service.projects(auth: auth)
         } catch {
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }
@@ -147,6 +158,7 @@ final class BoardStore: ObservableObject {
         do {
             decisions = try await service.decisions(auth: auth)
         } catch {
+            bannerIsError = true
             banner = Self.message(for: error)
         }
     }

@@ -215,8 +215,10 @@ struct IssueDetailView: View {
             issue = updated
             statusNote = ""
             comments = (try? await service.comments(issueId: issueID, auth: session.credentials)) ?? comments
+            board.bannerIsError = false
             board.banner = "Status set to \(newStatus.replacingOccurrences(of: "_", with: " "))"
         } catch {
+            board.bannerIsError = true
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
         }
     }
@@ -242,9 +244,11 @@ struct IssueDetailView: View {
                 let thread = try await service.comments(issueId: issueID, auth: session.credentials)
                 comments = thread
             } catch {
+                board.bannerIsError = true
                 board.banner = "Comment posted. The thread could not be re-read."
             }
         } catch {
+            board.bannerIsError = true
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
         }
     }

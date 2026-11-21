@@ -44,11 +44,13 @@ struct RootView: View {
             // The screenshot run asks for a banner on launch so the capture
             // shows the toast in place. A human never gets one.
             if let banner = SessionStore.launchBanner, board.banner == nil {
+                board.bannerIsError = false
                 board.banner = banner
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .relayBanner)) { note in
             if let message = note.object as? String {
+                board.bannerIsError = true
                 board.banner = message
             }
         }

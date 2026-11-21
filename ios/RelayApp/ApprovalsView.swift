@@ -91,6 +91,7 @@ struct ApprovalsView: View {
             await board.refreshApprovals(auth: session.credentials)
             await board.refreshAttention(auth: session.credentials)
         } catch {
+            board.bannerIsError = true
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
         }
     }
