@@ -150,8 +150,8 @@ struct ConsoleView: View {
             async let organizationLoad = BoardService().organization(auth: session.credentials)
             (dashboard, goals, routines, activity, organization) = try await (dashboardLoad, goalsLoad, routinesLoad, activityLoad, organizationLoad)
             error = nil
-        } catch {
-            error = BoardStore.message(for: error)
+        } catch let loadError {
+            error = BoardStore.message(for: loadError)
         }
     }
 
@@ -302,7 +302,7 @@ private struct CompanySearchView: View {
                 ForEach(results) { result in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(result.title ?? result.type.capitalized).font(.headline)
-                        if let snippet { Text(snippet).font(.subheadline).foregroundColor(.secondary).lineLimit(3) }
+                        if let snippet = result.snippet { Text(snippet).font(.subheadline).foregroundColor(.secondary).lineLimit(3) }
                         Text(result.type.capitalized).font(.caption).foregroundColor(.secondary)
                     }
                 }
@@ -323,7 +323,7 @@ private struct CompanySearchView: View {
         do {
             results = try await BoardService().search(auth: session.credentials, query: text).results
             error = nil
-        } catch { error = BoardStore.message(for: error) }
+        } catch let searchError { error = BoardStore.message(for: searchError) }
     }
 }
 

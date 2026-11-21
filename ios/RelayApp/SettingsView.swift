@@ -64,7 +64,7 @@ struct SettingsView: View {
                 }
 
                 if !keys.isEmpty {
-                    Section("Board keys on the server") {
+                    Section {
                         ForEach(keys) { key in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(key.name).font(.subheadline)
@@ -73,6 +73,8 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
+                    } header: {
+                        Text("Board keys on the server")
                     } footer: {
                         Text("Relay lists company-admin keys for audit only. Creating or revoking keys stays in the web board: a phone should not casually mint credentials or lock another device out.")
                     }
