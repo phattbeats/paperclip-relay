@@ -181,6 +181,19 @@ ios/RelayApp/
   SettingsView.swift       connection, credentials, key list
 ```
 
+## Banner conventions
+
+`BoardStore.banner` is a shared banner plus a `bannerIsError` flag. The flag
+is not decoration: the banner is the app's only channel for both failures and
+confirmations, so a message like "Status set to in review." rendered with the
+same warning triangle as a server error. A confirmation wears a green
+checkmark; a failure wears the orange triangle.
+
+**When you add a banner assignment, set `bannerIsError` on the line before it.**
+Confirmations (`status` changed, comment posted) set it to `false`; anything
+derived from a caught error sets it to `true`. A new assignment that forgets
+the flag inherits `true` and will render as an error.
+
 ## Licence
 
 MIT, matching Paperclip upstream.
