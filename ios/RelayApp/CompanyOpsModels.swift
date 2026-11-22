@@ -36,6 +36,18 @@ struct SpendByAgent: Codable, Identifiable, Hashable {
     let subscriptionRunCount: Int?
 
     var id: String { agentId ?? "agent-\(agentName ?? "unknown")" }
+
+    var subtitle: String {
+        var parts: [String] = []
+        if let status = agentStatus { parts.append(status.capitalized) }
+        if let count = eventCount { parts.append("\(count) events") }
+        if let unpriced = unpricedEventCount, unpriced > 0 { parts.append("\(unpriced) unpriced") }
+        return parts.joined(separator: " · ")
+    }
+
+    var tokens: Int {
+        (inputTokens ?? 0) + (cachedInputTokens ?? 0) + (outputTokens ?? 0)
+    }
 }
 
 struct SpendByProject: Codable, Identifiable, Hashable {
@@ -51,6 +63,10 @@ struct SpendByProject: Codable, Identifiable, Hashable {
 
     var id: String { projectId ?? "unassigned" }
     var title: String { projectName ?? "Unassigned" }
+
+    var tokens: Int {
+        (inputTokens ?? 0) + (cachedInputTokens ?? 0) + (outputTokens ?? 0)
+    }
 }
 
 struct SpendByProvider: Codable, Identifiable, Hashable {
@@ -68,6 +84,18 @@ struct SpendByProvider: Codable, Identifiable, Hashable {
     let outputTokens: Int?
 
     var id: String { "\(provider ?? "provider")-\(model ?? "model")" }
+
+    var subtitle: String {
+        var parts: [String] = []
+        if let provider { parts.append(provider) }
+        if let biller { parts.append(biller) }
+        if let billingType { parts.append(billingType) }
+        return parts.joined(separator: " · ")
+    }
+
+    var tokens: Int {
+        (inputTokens ?? 0) + (cachedInputTokens ?? 0) + (outputTokens ?? 0)
+    }
 }
 
 struct WindowSpend: Codable, Identifiable, Hashable {
@@ -82,6 +110,10 @@ struct WindowSpend: Codable, Identifiable, Hashable {
     let outputTokens: Int?
 
     var id: String { "\(provider ?? "provider")-\(window ?? "window")" }
+
+    var tokens: Int {
+        (inputTokens ?? 0) + (cachedInputTokens ?? 0) + (outputTokens ?? 0)
+    }
 }
 
 struct BudgetsOverview: Codable, Hashable {
@@ -144,12 +176,19 @@ struct CompanyMembers: Codable, Hashable {
     }
 
     struct Grant: Codable, Identifiable, Hashable {
-        let id: String?
+        let grantId: String?
         let permissionKey: String?
         let grantedByUserId: String?
         let createdAt: String?
 
-        var id: String { id ?? permissionKey ?? "grant" }
+        var id: String { grantId ?? permissionKey ?? "grant" }
+
+        enum CodingKeys: String, CodingKey {
+            case grantId = "id"
+            case permissionKey
+            case grantedByUserId
+            case createdAt
+        }
     }
 
     struct Member: Codable, Identifiable, Hashable {
@@ -163,6 +202,14 @@ struct CompanyMembers: Codable, Hashable {
         let updatedAt: String?
         let user: MemberUser?
         let grants: [Grant]?
+
+        var subtitle: String {
+            var parts: [String] = []
+            if let email = user?.email { parts.append(email) }
+            if let role = membershipRole { parts.append(role.capitalized) }
+            if let status { parts.append(status.capitalized) }
+            return parts.joined(separator: " · ")
+        }
     }
 
     struct Access: Codable, Hashable {
@@ -257,6 +304,11 @@ enum OpsFormat {
         return (cents / 100).formatted(.currency(code: "USD"))
     }
 
+    static func percent(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return "\(Int(value))%"
+    }
+
     static func compactNumber(_ value: Int?) -> String {
         guard let value else { return "—" }
         if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
@@ -272,5 +324,12 @@ enum OpsFormat {
         if seconds < 60 { return "\(seconds)s" }
         if seconds < 3600 { return "\(seconds / 60)m" }
         return String(format: "%.1fh", Double(seconds) / 3600)
+    }
+}
+
+/// One place to turn a thrown error into text a phone can show.
+enum OpsFailure {
+    static func message(_ error: Error) -> String {
+        BoardStore.message(for: error)
     }
 }

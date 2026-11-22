@@ -5,6 +5,9 @@ import SwiftUI
 // The board already attributes every dollar to an agent, a project, a
 // provider and a rate window. This pane is that attribution, live, on the
 // phone — plus the one write that matters: the monthly ceiling.
+//
+// Every section is its own small view on purpose. A single large List body
+// made the Swift type-checker give up on the whole pane.
 
 struct CompanySpendView: View {
     @EnvironmentObject private var session: SessionStore
@@ -22,103 +25,14 @@ struct CompanySpendView: View {
 
     var body: some View {
         List {
-            if let summary {
-                Section("This month") {
-                    HStack(spacing: 12) {
-                        OpsMetric(value: OpsFormat.money(summary.spendCents), label: "spend", tint: .purple)
-                        OpsMetric(value: OpsFormat.money(summary.budgetCents), label: "budget", tint: .blue)
-                        OpsMetric(value: summary.utilizationPercent.map { "\(Int($0))%" } ?? "—", label: "used", tint: .teal)
-                    }
-                    if summary.pricingComplete == false {
-                        Label {
-                            Text("Pricing incomplete — \(summary.unpricedEventCount ?? 0) unpriced, \(summary.unknownBillingEventCount ?? 0) unknown-billing events.")
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
-                        }
-                        .font(.footnote)
-                    }
-                    LabeledContent("Billed events", value: "\(summary.eventCount ?? 0)")
-                    LabeledContent("Pending runs", value: "\(summary.pendingRunCount ?? 0)")
-                }
-            }
-
-            if let policies = budgets?.policies, !policies.isEmpty {
-                Section("Budget policies") {
-                    ForEach(policies) { policy in
-                        BudgetPolicyRow(policy: policy)
-                    }
-                }
-            }
-
-            if !byAgent.isEmpty {
-                Section("By agent") {
-                    ForEach(byAgent.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
-                        OpsCostRow(
-                            title: row.agentName ?? "Unknown agent",
-                            subtitle: [
-                                row.agentStatus?.capitalized,
-                                row.eventCount.map { "\($0) events" },
-                                row.unpricedEventCount.map { $0 > 0 ? "\($0) unpriced" : nil }
-                            ].compactMap { $0 }.joined(separator: " · "),
-                            costCents: row.costCents,
-                            tokens: (row.inputTokens ?? 0) + (row.cachedInputTokens ?? 0) + (row.outputTokens ?? 0)
-                        )
-                    }
-                }
-            }
-
-            if !byProject.isEmpty {
-                Section("By project") {
-                    ForEach(byProject.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
-                        OpsCostRow(
-                            title: row.title,
-                            subtitle: row.eventCount.map { "\($0) events" } ?? "",
-                            costCents: row.costCents,
-                            tokens: (row.inputTokens ?? 0) + (row.cachedInputTokens ?? 0) + (row.outputTokens ?? 0)
-                        )
-                    }
-                }
-            }
-
-            if !byProvider.isEmpty {
-                Section("By provider and model") {
-                    ForEach(byProvider.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
-                        OpsCostRow(
-                            title: row.model ?? row.provider ?? "Unknown",
-                            subtitle: [row.provider, row.biller, row.billingType]
-                                .compactMap { $0 }
-                                .joined(separator: " · "),
-                            costCents: row.costCents,
-                            tokens: (row.inputTokens ?? 0) + (row.cachedInputTokens ?? 0) + (row.outputTokens ?? 0)
-                        )
-                    }
-                }
-            }
-
-            if !windows.isEmpty {
-                Section("Rate windows") {
-                    ForEach(windows) { row in
-                        OpsCostRow(
-                            title: "\(row.provider ?? "provider") · \(row.window ?? "window")",
-                            subtitle: row.windowHours.map { "\($0)h window" } ?? "",
-                            costCents: row.costCents,
-                            tokens: (row.inputTokens ?? 0) + (row.cachedInputTokens ?? 0) + (row.outputTokens ?? 0)
-                        )
-                    }
-                }
-            }
-
-            Section {
-                Button { showBudget = true } label: {
-                    Label("Set monthly budget", systemImage: "gauge.with.dots.needle.33percent")
-                }
-            } footer: {
-                Text("The monthly ceiling is company policy. It blocks spending that would pass it.")
-            }
-
-            if let error {
-                Section { Text(error).font(.footnote).foregroundColor(.red) }
-            }
+            SpendSummarySection(summary: summary)
+            BudgetPolicySection(policies: budgets?.policies ?? [])
+            AgentCostSection(rows: byAgent)
+            ProjectCostSection(rows: byProject)
+            ProviderCostSection(rows: byProvider)
+            WindowSpendSection(rows: windows)
+            budgetButton
+            OpsErrorSection(error: error)
         }
         .overlay {
             if loading && summary == nil {
@@ -131,6 +45,16 @@ struct CompanySpendView: View {
             MonthlyBudgetView(currentCents: summary?.budgetCents ?? 0) { cents in
                 await applyBudget(cents)
             }
+        }
+    }
+
+    private var budgetButton: some View {
+        Section {
+            Button { showBudget = true } label: {
+                Label("Set monthly budget", systemImage: "gauge.with.dots.needle.33percent")
+            }
+        } footer: {
+            Text("The monthly ceiling is company policy. It blocks spending that would pass it.")
         }
     }
 
@@ -156,7 +80,7 @@ struct CompanySpendView: View {
 
         var failures: [String] = []
         if case .success(let value) = loadedSummary { summary = value }
-        if case .failure(let failure) = loadedSummary { failures.append("spend: \(BoardStore.message(for: failure))") }
+        if case .failure(let failure) = loadedSummary { failures.append("spend: \(OpsFailure.message(failure))") }
         if case .success(let value) = loadedAgents { byAgent = value }
         if case .success(let value) = loadedProjects { byProject = value }
         if case .success(let value) = loadedProviders { byProvider = value }
@@ -174,7 +98,7 @@ struct CompanySpendView: View {
             await load()
         } catch {
             board.bannerIsError = true
-            board.banner = BoardStore.message(for: error)
+            board.banner = OpsFailure.message(error)
         }
     }
 
@@ -185,6 +109,62 @@ struct CompanySpendView: View {
             return .success(try await work())
         } catch {
             return .failure(error)
+        }
+    }
+}
+
+private struct SpendSummarySection: View {
+    let summary: SpendSummary?
+
+    var body: some View {
+        if let summary {
+            Section("This month") {
+                SpendSummaryMetrics(summary: summary)
+                if summary.pricingComplete == false {
+                    SpendPricingWarning(summary: summary)
+                }
+                LabeledContent("Billed events", value: "\(summary.eventCount ?? 0)")
+                LabeledContent("Pending runs", value: "\(summary.pendingRunCount ?? 0)")
+            }
+        }
+    }
+}
+
+private struct SpendSummaryMetrics: View {
+    let summary: SpendSummary
+
+    var body: some View {
+        HStack(spacing: 12) {
+            OpsMetric(value: OpsFormat.money(summary.spendCents), label: "spend", tint: .purple)
+            OpsMetric(value: OpsFormat.money(summary.budgetCents), label: "budget", tint: .blue)
+            OpsMetric(value: OpsFormat.percent(summary.utilizationPercent), label: "used", tint: .teal)
+        }
+    }
+}
+
+private struct SpendPricingWarning: View {
+    let summary: SpendSummary
+
+    var body: some View {
+        Label {
+            Text("Pricing incomplete — \(summary.unpricedEventCount ?? 0) unpriced, \(summary.unknownBillingEventCount ?? 0) unknown-billing events.")
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+        }
+        .font(.footnote)
+    }
+}
+
+private struct BudgetPolicySection: View {
+    let policies: [BudgetsOverview.Policy]
+
+    var body: some View {
+        if !policies.isEmpty {
+            Section("Budget policies") {
+                ForEach(policies) { policy in
+                    BudgetPolicyRow(policy: policy)
+                }
+            }
         }
     }
 }
@@ -201,17 +181,108 @@ private struct BudgetPolicyRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            if let amount = policy.amount, amount > 0 {
-                ProgressView(value: min(policy.observedAmount ?? 0, amount), total: amount)
-                    .tint((policy.observedAmount ?? 0) >= amount ? .red : .green)
-            }
-            Text([policy.scopeType?.capitalized, policy.metric, policy.windowKind]
-                .compactMap { $0 }
-                .joined(separator: " · "))
+            BudgetPolicyBar(amount: policy.amount, observed: policy.observedAmount)
+            Text(policy.scopeType?.capitalized ?? "")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct BudgetPolicyBar: View {
+    let amount: Double?
+    let observed: Double?
+
+    var body: some View {
+        if let limit = amount, limit > 0 {
+            let used: Double = observed ?? 0
+            ProgressView(value: min(used, limit), total: limit)
+                .tint(used >= limit ? .red : .green)
+        }
+    }
+}
+
+private struct AgentCostSection: View {
+    let rows: [SpendByAgent]
+
+    var body: some View {
+        if !rows.isEmpty {
+            Section("By agent") {
+                ForEach(rows.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
+                    OpsCostRow(
+                        title: row.agentName ?? "Unknown agent",
+                        subtitle: row.subtitle,
+                        costCents: row.costCents,
+                        tokens: row.tokens
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct ProjectCostSection: View {
+    let rows: [SpendByProject]
+
+    var body: some View {
+        if !rows.isEmpty {
+            Section("By project") {
+                ForEach(rows.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
+                    OpsCostRow(
+                        title: row.title,
+                        subtitle: OpsCostSection.eventCount(row.eventCount),
+                        costCents: row.costCents,
+                        tokens: row.tokens
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct ProviderCostSection: View {
+    let rows: [SpendByProvider]
+
+    var body: some View {
+        if !rows.isEmpty {
+            Section("By provider and model") {
+                ForEach(rows.sorted { ($0.costCents ?? 0) > ($1.costCents ?? 0) }) { row in
+                    OpsCostRow(
+                        title: row.model ?? row.provider ?? "Unknown",
+                        subtitle: row.subtitle,
+                        costCents: row.costCents,
+                        tokens: row.tokens
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct WindowSpendSection: View {
+    let rows: [WindowSpend]
+
+    var body: some View {
+        if !rows.isEmpty {
+            Section("Rate windows") {
+                ForEach(rows) { row in
+                    OpsCostRow(
+                        title: "\(row.provider ?? "provider") · \(row.window ?? "window")",
+                        subtitle: row.windowHours.map { "\($0)h window" } ?? "",
+                        costCents: row.costCents,
+                        tokens: row.tokens
+                    )
+                }
+            }
+        }
+    }
+}
+
+private enum OpsCostSection {
+    static func eventCount(_ count: Int?) -> String {
+        guard let count else { return "" }
+        return "\(count) events"
     }
 }
 
@@ -253,50 +324,9 @@ struct CompanyPeopleView: View {
 
     var body: some View {
         List {
-            if let access = members?.access {
-                Section("Your access") {
-                    LabeledContent("Your role", value: access.currentUserRole?.capitalized ?? "—")
-                    LabeledContent("Can manage members", value: access.canManageMembers == true ? "Yes" : "No")
-                    LabeledContent("Can invite users", value: access.canInviteUsers == true ? "Yes" : "No")
-                    LabeledContent("Join requests", value: access.canApproveJoinRequests == true ? "Can approve" : "No")
-                }
-            }
-
-            if let list = members?.members, !list.isEmpty {
-                Section("Members") {
-                    ForEach(list) { member in
-                        Button { selectedMember = member } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(member.user?.name ?? member.user?.email ?? "Member")
-                                        .foregroundColor(.primary)
-                                    Text([
-                                        member.user?.email,
-                                        member.membershipRole?.capitalized,
-                                        member.status?.capitalized
-                                    ].compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                if let grants = member.grants, !grants.isEmpty {
-                                    Text("\(grants.count)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 2)
-                                        .background(Color.secondary.opacity(0.15), in: Capsule())
-                                }
-                                Image(systemName: "chevron.right").foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let error {
-                Section { Text(error).font(.footnote).foregroundColor(.red) }
-            }
+            PeopleAccessSection(access: members?.access)
+            PeopleMemberSection(members: members?.members ?? [], onSelect: { selectedMember = $0 })
+            OpsErrorSection(error: error)
         }
         .overlay {
             if loading && members == nil {
@@ -318,7 +348,65 @@ struct CompanyPeopleView: View {
             members = try await BoardService().members(auth: session.credentials)
             error = nil
         } catch let loadError {
-            error = BoardStore.message(for: loadError)
+            error = OpsFailure.message(loadError)
+        }
+    }
+}
+
+private struct PeopleAccessSection: View {
+    let access: CompanyMembers.Access?
+
+    var body: some View {
+        if let access {
+            Section("Your access") {
+                LabeledContent("Your role", value: access.currentUserRole?.capitalized ?? "—")
+                LabeledContent("Can manage members", value: access.canManageMembers == true ? "Yes" : "No")
+                LabeledContent("Can invite users", value: access.canInviteUsers == true ? "Yes" : "No")
+                LabeledContent("Join requests", value: access.canApproveJoinRequests == true ? "Can approve" : "No")
+            }
+        }
+    }
+}
+
+private struct PeopleMemberSection: View {
+    let members: [CompanyMembers.Member]
+    let onSelect: (CompanyMembers.Member) -> Void
+
+    var body: some View {
+        if !members.isEmpty {
+            Section("Members") {
+                ForEach(members) { member in
+                    Button { onSelect(member) } label: {
+                        PeopleMemberRow(member: member)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PeopleMemberRow: View {
+    let member: CompanyMembers.Member
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(member.user?.name ?? member.user?.email ?? "Member")
+                    .foregroundColor(.primary)
+                Text(member.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            if let grants = member.grants, !grants.isEmpty {
+                Text("\(grants.count)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.15), in: Capsule())
+            }
+            Image(systemName: "chevron.right").foregroundColor(.secondary)
         }
     }
 }
@@ -355,25 +443,7 @@ private struct MemberDetailView: View {
                         .disabled(working)
                 }
 
-                if let grants = member.grants, !grants.isEmpty {
-                    Section {
-                        ForEach(grants) { grant in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(grant.permissionKey ?? "permission")
-                                    .font(.subheadline)
-                                if let created = grant.createdAt {
-                                    Text("granted \(Format.relative(created))")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    } header: {
-                        Text("Permissions")
-                    } footer: {
-                        Text("Permission keys are granted by the board. The phone reads them; it does not hand them out.")
-                    }
-                }
+                MemberGrantSection(grants: member.grants ?? [])
             }
             .navigationTitle(member.user?.name ?? "Member")
             .toolbar {
@@ -402,7 +472,33 @@ private struct MemberDetailView: View {
             dismiss()
         } catch {
             board.bannerIsError = true
-            board.banner = BoardStore.message(for: error)
+            board.banner = OpsFailure.message(error)
+        }
+    }
+}
+
+private struct MemberGrantSection: View {
+    let grants: [CompanyMembers.Grant]
+
+    var body: some View {
+        if !grants.isEmpty {
+            Section {
+                ForEach(grants) { grant in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(grant.permissionKey ?? "permission")
+                            .font(.subheadline)
+                        if let created = grant.createdAt {
+                            Text("granted \(Format.relative(created))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("Permission keys are granted by the board. The phone reads them; it does not hand them out.")
+            }
         }
     }
 }
@@ -427,86 +523,10 @@ struct CompanyTimelineView: View {
                 .pickerStyle(.segmented)
             }
 
-            if mode == "runs" {
-                let spans = (timeline?.spans ?? []).sorted { ($0.start ?? "") > ($1.start ?? "") }
-                if spans.isEmpty && !loading {
-                    Section { Text("No runs in this window.").font(.footnote).foregroundColor(.secondary) }
-                }
-                ForEach(spans.prefix(80)) { span in
-                    Section {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                if let identifier = span.issueIdentifier {
-                                    Text(identifier)
-                                        .font(.caption.monospaced())
-                                        .foregroundColor(.blue)
-                                }
-                                if let status = span.status {
-                                    Text(status.capitalized)
-                                        .font(.caption2)
-                                        .foregroundColor(OpsStatus.tint(status))
-                                }
-                                Spacer()
-                                Text(OpsFormat.duration(start: span.start, end: span.end))
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundColor(.secondary)
-                            }
-                            if let title = span.issueTitle {
-                                Text(title).font(.subheadline).lineLimit(2)
-                            }
-                            HStack(spacing: 6) {
-                                Text(actorName(span.actorId))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                if let source = span.invocationSource {
-                                    Text(source).font(.caption2).foregroundColor(.secondary)
-                                }
-                                if let attempt = span.continuationAttempt, attempt > 0 {
-                                    Text("attempt \(attempt + 1)").font(.caption2).foregroundColor(.orange)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            } else {
-                let events = (timeline?.events ?? []).sorted { ($0.at ?? "") > ($1.at ?? "") }
-                if events.isEmpty && !loading {
-                    Section { Text("No events in this window.").font(.footnote).foregroundColor(.secondary) }
-                }
-                ForEach(events.prefix(120)) { event in
-                    Section {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.kind?.capitalized ?? "Event")
-                                    .font(.subheadline)
-                                Text(actorName(event.actorId))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text(Format.relative(event.at))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-
-            if let pagination = timeline?.pagination {
-                Section {
-                    LabeledContent("Issues in window", value: "\(pagination.totalIssues ?? 0)")
-                    if pagination.hasMore == true {
-                        Text("More history exists beyond this window.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            if let error {
-                Section { Text(error).font(.footnote).foregroundColor(.red) }
-            }
+            TimelineRunsSection(mode: mode, spans: timeline?.spans ?? [], actors: timeline?.actors ?? [], loading: loading)
+            TimelineEventsSection(mode: mode, events: timeline?.events ?? [], actors: timeline?.actors ?? [], loading: loading)
+            TimelinePaginationSection(pagination: timeline?.pagination)
+            OpsErrorSection(error: error)
         }
         .overlay {
             if loading && timeline == nil {
@@ -517,14 +537,6 @@ struct CompanyTimelineView: View {
         .task { await load() }
     }
 
-    private func actorName(_ id: String?) -> String {
-        guard let id else { return "Board" }
-        if let actor = (timeline?.actors ?? []).first(where: { $0.id == id }) {
-            return actor.name ?? actor.type ?? "Board"
-        }
-        return id
-    }
-
     private func load() async {
         guard session.credentials.isConfigured else { return }
         loading = true
@@ -533,8 +545,139 @@ struct CompanyTimelineView: View {
             timeline = try await BoardService().timeline(auth: session.credentials)
             error = nil
         } catch let loadError {
-            error = BoardStore.message(for: loadError)
+            error = OpsFailure.message(loadError)
         }
+    }
+}
+
+private struct TimelineRunsSection: View {
+    let mode: String
+    let spans: [CompanyTimeline.Span]
+    let actors: [CompanyTimeline.Actor]
+    let loading: Bool
+
+    var body: some View {
+        if mode == "runs" {
+            if spans.isEmpty && !loading {
+                Section { Text("No runs in this window.").font(.footnote).foregroundColor(.secondary) }
+            } else {
+                ForEach(spans.sorted { ($0.start ?? "") > ($1.start ?? "") }.prefix(80)) { span in
+                    Section {
+                        TimelineRunRow(span: span, actorName: OpsActors.name(span.actorId, actors: actors))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct TimelineEventsSection: View {
+    let mode: String
+    let events: [CompanyTimeline.Event]
+    let actors: [CompanyTimeline.Actor]
+    let loading: Bool
+
+    var body: some View {
+        if mode == "events" {
+            if events.isEmpty && !loading {
+                Section { Text("No events in this window.").font(.footnote).foregroundColor(.secondary) }
+            } else {
+                ForEach(events.sorted { ($0.at ?? "") > ($1.at ?? "") }.prefix(120)) { event in
+                    Section {
+                        TimelineEventRow(event: event, actorName: OpsActors.name(event.actorId, actors: actors))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct TimelineEventRow: View {
+    let event: CompanyTimeline.Event
+    let actorName: String
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.kind?.capitalized ?? "Event")
+                    .font(.subheadline)
+                Text(actorName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Text(Format.relative(event.at))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct TimelinePaginationSection: View {
+    let pagination: CompanyTimeline.Pagination?
+
+    var body: some View {
+        if let pagination {
+            Section {
+                LabeledContent("Issues in window", value: "\(pagination.totalIssues ?? 0)")
+                if pagination.hasMore == true {
+                    Text("More history exists beyond this window.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct TimelineRunRow: View {
+    let span: CompanyTimeline.Span
+    let actorName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if let identifier = span.issueIdentifier {
+                    Text(identifier)
+                        .font(.caption.monospaced())
+                        .foregroundColor(.blue)
+                }
+                if let status = span.status {
+                    Text(status.capitalized)
+                        .font(.caption2)
+                        .foregroundColor(OpsStatus.tint(status))
+                }
+                Spacer()
+                Text(OpsFormat.duration(start: span.start, end: span.end))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+            if let title = span.issueTitle {
+                Text(title).font(.subheadline).lineLimit(2)
+            }
+            HStack(spacing: 6) {
+                Text(actorName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if let source = span.invocationSource {
+                    Text(source).font(.caption2).foregroundColor(.secondary)
+                }
+                if let attempt = span.continuationAttempt, attempt > 0 {
+                    Text("attempt \(attempt + 1)").font(.caption2).foregroundColor(.orange)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private enum OpsActors {
+    static func name(_ id: String?, actors: [CompanyTimeline.Actor]) -> String {
+        guard let id else { return "Board" }
+        if let actor = actors.first(where: { $0.id == id }) {
+            return actor.name ?? actor.type ?? "Board"
+        }
+        return id
     }
 }
 
@@ -551,105 +694,13 @@ struct CompanyHealthView: View {
 
     var body: some View {
         List {
-            if let dashboard {
-                Section("Agents") {
-                    HStack(spacing: 12) {
-                        OpsMetric(value: "\(dashboard.agents.active)", label: "active", tint: .green)
-                        OpsMetric(value: "\(dashboard.agents.running)", label: "running", tint: .blue)
-                        OpsMetric(value: "\(dashboard.agents.paused)", label: "paused", tint: .orange)
-                        OpsMetric(value: "\(dashboard.agents.error)", label: "errors", tint: dashboard.agents.error > 0 ? .red : .secondary)
-                    }
-                }
-
-                Section("Work") {
-                    HStack(spacing: 12) {
-                        OpsMetric(value: "\(dashboard.tasks.open)", label: "open", tint: .blue)
-                        OpsMetric(value: "\(dashboard.tasks.inProgress)", label: "active", tint: .green)
-                        OpsMetric(value: "\(dashboard.tasks.blocked)", label: "blocked", tint: dashboard.tasks.blocked > 0 ? .orange : .secondary)
-                    }
-                }
-
-                Section("Runs per day") {
-                    RunActivityBars(days: Array(dashboard.runActivity.suffix(14)))
-                    if let latest = dashboard.runActivity.last {
-                        LabeledContent("Latest day") {
-                            Text("\(latest.succeeded) succeeded · \(latest.failed) failed")
-                                .foregroundColor(latest.failed > 0 ? .orange : .secondary)
-                        }
-                    }
-                    if let latest = dashboard.runActivity.last, let codes = latest.failedByErrorCode, !codes.isEmpty {
-                        ForEach(codes.sorted(by: { $0.key < $1.key }), id: \.key) { code, count in
-                            LabeledContent(code, value: "\(count)")
-                                .font(.footnote)
-                        }
-                    }
-                }
-
-                Section("Budget guards") {
-                    LabeledContent("Active incidents", value: "\(dashboard.budgets?.activeIncidents ?? 0)")
-                    LabeledContent("Paused agents", value: "\(dashboard.budgets?.pausedAgents ?? 0)")
-                    LabeledContent("Paused projects", value: "\(dashboard.budgets?.pausedProjects ?? 0)")
-                    LabeledContent("Pending approvals", value: "\(dashboard.budgets?.pendingApprovals ?? 0)")
-                }
-            }
-
-            Section("Observability") {
-                LabeledContent("Configured", value: observability?.configured == true ? "Yes" : "No")
-                LabeledContent("Enabled", value: observability?.enabled == true ? "Yes" : "No")
-                LabeledContent("Provider", value: observability?.provider?.capitalized ?? "—")
-                if let test = observability?.lastTest {
-                    LabeledContent("Last test", value: test.status?.capitalized ?? "—")
-                }
-            }
-
-            if !quota.isEmpty {
-                Section {
-                    ForEach(quota) { report in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(report.accountLabel ?? report.provider ?? "Account")
-                                    .font(.subheadline)
-                                Spacer()
-                                if report.ok == false {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.orange)
-                                }
-                            }
-                            ForEach(report.windows ?? []) { window in
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack {
-                                        Text(window.label ?? "Window").font(.caption)
-                                        Spacer()
-                                        if let percent = window.usedPercent {
-                                            Text("\(Int(percent))%").font(.caption2.monospacedDigit())
-                                        } else if let value = window.valueLabel {
-                                            Text(value).font(.caption2).foregroundColor(.secondary)
-                                        }
-                                    }
-                                    if let percent = window.usedPercent {
-                                        ProgressView(value: min(percent, 100), total: 100)
-                                            .tint(percent >= 90 ? .red : (percent >= 70 ? .orange : .green))
-                                    }
-                                    if let resets = window.resetsAt {
-                                        Text("resets \(Format.relative(resets))")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                } header: {
-                    Text("Subscription limits")
-                } footer: {
-                    Text("Quota windows come from the provider accounts the board is connected to.")
-                }
-            }
-
-            if let error {
-                Section { Text(error).font(.footnote).foregroundColor(.red) }
-            }
+            HealthAgentSection(dashboard: dashboard)
+            HealthWorkSection(dashboard: dashboard)
+            HealthRunsSection(dashboard: dashboard)
+            HealthBudgetSection(dashboard: dashboard)
+            HealthObservabilitySection(status: observability)
+            HealthQuotaSection(reports: quota)
+            OpsErrorSection(error: error)
         }
         .overlay {
             if loading && dashboard == nil {
@@ -676,7 +727,7 @@ struct CompanyHealthView: View {
 
         var failures: [String] = []
         if case .success(let value) = loadedDashboard { dashboard = value }
-        if case .failure(let failure) = loadedDashboard { failures.append("dashboard: \(BoardStore.message(for: failure))") }
+        if case .failure(let failure) = loadedDashboard { failures.append("dashboard: \(OpsFailure.message(failure))") }
         if case .success(let value) = loadedObservability { observability = value }
         if case .success(let value) = loadedQuota { quota = value }
 
@@ -692,10 +743,187 @@ struct CompanyHealthView: View {
     }
 }
 
+private struct HealthAgentSection: View {
+    let dashboard: CompanyDashboard?
+
+    var body: some View {
+        if let dashboard {
+            Section("Agents") {
+                HStack(spacing: 12) {
+                    OpsMetric(value: "\(dashboard.agents.active)", label: "active", tint: .green)
+                    OpsMetric(value: "\(dashboard.agents.running)", label: "running", tint: .blue)
+                    OpsMetric(value: "\(dashboard.agents.paused)", label: "paused", tint: .orange)
+                    OpsMetric(value: "\(dashboard.agents.error)", label: "errors", tint: dashboard.agents.error > 0 ? .red : .secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct HealthWorkSection: View {
+    let dashboard: CompanyDashboard?
+
+    var body: some View {
+        if let dashboard {
+            Section("Work") {
+                HStack(spacing: 12) {
+                    OpsMetric(value: "\(dashboard.tasks.open)", label: "open", tint: .blue)
+                    OpsMetric(value: "\(dashboard.tasks.inProgress)", label: "active", tint: .green)
+                    OpsMetric(value: "\(dashboard.tasks.blocked)", label: "blocked", tint: dashboard.tasks.blocked > 0 ? .orange : .secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct HealthRunsSection: View {
+    let dashboard: CompanyDashboard?
+
+    var body: some View {
+        if let dashboard {
+            Section("Runs per day") {
+                RunActivityBars(days: Array(dashboard.runActivity.suffix(14)))
+                if let latest = dashboard.runActivity.last {
+                    LabeledContent("Latest day") {
+                        Text("\(latest.succeeded) succeeded · \(latest.failed) failed")
+                            .foregroundColor(latest.failed > 0 ? .orange : .secondary)
+                    }
+                }
+                HealthFailureCodes(codes: dashboard.runActivity.last?.failedByErrorCode ?? [:])
+            }
+        }
+    }
+}
+
+private struct HealthFailureCodes: View {
+    let codes: [String: Int]
+
+    var body: some View {
+        if !codes.isEmpty {
+            ForEach(codes.sorted(by: { $0.key < $1.key }), id: \.key) { code, count in
+                LabeledContent(code, value: "\(count)")
+                    .font(.footnote)
+            }
+        }
+    }
+}
+
+private struct HealthBudgetSection: View {
+    let dashboard: CompanyDashboard?
+
+    var body: some View {
+        if let dashboard, let budgets = dashboard.budgets {
+            Section("Budget guards") {
+                LabeledContent("Active incidents", value: "\(budgets.activeIncidents ?? 0)")
+                LabeledContent("Paused agents", value: "\(budgets.pausedAgents ?? 0)")
+                LabeledContent("Paused projects", value: "\(budgets.pausedProjects ?? 0)")
+                LabeledContent("Pending approvals", value: "\(budgets.pendingApprovals ?? 0)")
+            }
+        }
+    }
+}
+
+private struct HealthObservabilitySection: View {
+    let status: ObservabilityStatus?
+
+    var body: some View {
+        Section("Observability") {
+            LabeledContent("Configured", value: status?.configured == true ? "Yes" : "No")
+            LabeledContent("Enabled", value: status?.enabled == true ? "Yes" : "No")
+            LabeledContent("Provider", value: status?.provider?.capitalized ?? "—")
+            if let test = status?.lastTest {
+                LabeledContent("Last test", value: test.status?.capitalized ?? "—")
+            }
+        }
+    }
+}
+
+private struct HealthQuotaSection: View {
+    let reports: [QuotaReport]
+
+    var body: some View {
+        if !reports.isEmpty {
+            Section {
+                ForEach(reports) { report in
+                    QuotaReportRow(report: report)
+                }
+            } header: {
+                Text("Subscription limits")
+            } footer: {
+                Text("Quota windows come from the provider accounts the board is connected to.")
+            }
+        }
+    }
+}
+
+private struct QuotaReportRow: View {
+    let report: QuotaReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(report.accountLabel ?? report.provider ?? "Account")
+                    .font(.subheadline)
+                Spacer()
+                if report.ok == false {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                }
+            }
+            ForEach(report.windows ?? []) { window in
+                QuotaWindowRow(window: window)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct QuotaWindowRow: View {
+    let window: QuotaReport.Window
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(window.label ?? "Window").font(.caption)
+                Spacer()
+                QuotaWindowValue(window: window)
+            }
+            QuotaWindowBar(window: window)
+            if let resets = window.resetsAt {
+                Text("resets \(Format.relative(resets))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+private struct QuotaWindowValue: View {
+    let window: QuotaReport.Window
+
+    var body: some View {
+        if let percent = window.usedPercent {
+            Text("\(Int(percent))%").font(.caption2.monospacedDigit())
+        } else if let value = window.valueLabel {
+            Text(value).font(.caption2).foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct QuotaWindowBar: View {
+    let window: QuotaReport.Window
+
+    var body: some View {
+        if let percent = window.usedPercent {
+            ProgressView(value: min(percent, 100), total: 100)
+                .tint(percent >= 90 ? .red : (percent >= 70 ? .orange : .green))
+        }
+    }
+}
+
 // MARK: - Budget editor
 
 private struct MonthlyBudgetView: View {
-    @EnvironmentObject private var board: BoardStore
     @Environment(\.dismiss) private var dismiss
 
     let currentCents: Double?
@@ -771,6 +999,16 @@ struct OpsMetric: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct OpsErrorSection: View {
+    let error: String?
+
+    var body: some View {
+        if let error {
+            Section { Text(error).font(.footnote).foregroundColor(.red) }
+        }
     }
 }
 
