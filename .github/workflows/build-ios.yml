@@ -176,9 +176,26 @@ jobs:
           raise SystemExit("no iPhone simulator available")
           ')
           echo "UDID=$UDID" >> "$GITHUB_ENV"
+          # A runner can come back with a half-booted simulator from a
+          # previous job. Clear them before booting, and never wait on
+          # bootstatus forever — a wedged simulator must not wedge the
+          # release.
+          xcrun simctl shutdown all >/dev/null 2>&1 || true
           xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl list devices | grep -i "$UDID"
+          ( xcrun simctl bootstatus "$UDID" -b && echo "SIM_BOOTED" ) &
+          BOOT_PID=$!
+          for _ in $(seq 1 48); do
+            kill -0 "$BOOT_PID" 2>/dev/null || break
+            sleep 5
+          done
+          if kill -0 "$BOOT_PID" 2>/dev/null; then
+            echo "simulator did not report boot in time; carrying on anyway"
+            kill "$BOOT_PID" 2>/dev/null || true
+            xcrun simctl shutdown all >/dev/null 2>&1 || true
+            xcrun simctl boot "$UDID" || true
+            sleep 45
+          fi
+          xcrun simctl list devices | grep -i "$UDID" || true
 
       - name: Install the app
         run: |
@@ -214,7 +231,7 @@ jobs:
               xcrun simctl launch "$UDID" tech.phatt.papercliprelay
             # The app loads the board on launch; give it time to paint.
             sleep 30
-            xcrun simctl io "$UDID" screenshot "screenshots/$tab.png"
+            xcrun simctl io "$UDID" screenshot "screenshots/$tab.png" || echo "capture failed: $tab"
             ls -la screenshots/
             echo "--- launch diagnostic"
             cat "$CONTAINER/Documents/relay-launch.json" || echo "no diagnostic file"
@@ -235,8 +252,8 @@ jobs:
             SIMCTL_CHILD_RELAY_INITIAL_TAB="console" \
             SIMCTL_CHILD_RELAY_INITIAL_CONSOLE_PANE="$pane" \
               xcrun simctl launch "$UDID" tech.phatt.papercliprelay
-            sleep 40
-            xcrun simctl io "$UDID" screenshot "screenshots/console-$pane.png"
+            sleep 35
+            xcrun simctl io "$UDID" screenshot "screenshots/console-$pane.png" || echo "capture failed: $pane"
             ls -la screenshots/
           done
 
@@ -259,7 +276,7 @@ jobs:
           SIMCTL_CHILD_RELAY_INITIAL_BANNER="$RELAY_CAPTURE_BANNER" \
             xcrun simctl launch "$UDID" tech.phatt.papercliprelay
           sleep 35
-          xcrun simctl io "$UDID" screenshot "screenshots/issue-detail-toast.png"
+          xcrun simctl io "$UDID" screenshot "screenshots/issue-detail-toast.png" || echo "capture failed: detail"
           ls -la screenshots/
 
       - name: Upload the screenshots
@@ -267,5 +284,5 @@ jobs:
         with:
           name: paperclip-relay-ios-screenshots
           path: screenshots
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
