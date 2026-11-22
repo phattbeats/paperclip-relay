@@ -342,6 +342,6 @@ enum OpsFailure {
 struct CompanyLabel: Codable, Identifiable, Hashable {
     let id: String
     let companyId: String?
-    let name: String
+    let name: String?
     let color: String?
 }

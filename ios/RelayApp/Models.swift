@@ -655,6 +655,7 @@ extension Issue {
                   completedAt: nil,
                   displayStatus: nil,
                   labels: nil,
+                  labelIds: nil,
                   listProjection: nil,
                   isUnreadForMe: nil,
                   myLastTouchAt: nil,

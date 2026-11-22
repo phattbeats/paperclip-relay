@@ -109,7 +109,7 @@ struct IssueDetailView: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(issueLabelNames, id: \.self) { name in
-                            Label(name).font(.callout)
+                            Text(name).font(.callout)
                         }
                     }
                     Button("Manage labels…") { showingLabels = true }

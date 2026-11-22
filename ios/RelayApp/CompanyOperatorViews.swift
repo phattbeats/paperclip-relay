@@ -104,7 +104,7 @@ struct IssueLabelsSheet: View {
                         Button {
                             toggle(label.id)
                         } label: {
-                            LabelRow(title: label.name, color: label.color, isSelected: selected.contains(label.id))
+                            LabelRow(title: label.name ?? "label", color: label.color, isSelected: selected.contains(label.id))
                         }
                         .disabled(saving)
                     }
