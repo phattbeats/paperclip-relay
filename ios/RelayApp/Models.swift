@@ -62,6 +62,9 @@ struct Issue: Codable, Identifiable, Hashable {
     let completedAt: String?
     let displayStatus: String?
     let labels: [IssueLabel]?
+    /// The label ids the board has on this issue. The label objects are a
+    /// convenience; these are what a write has to send back.
+    let labelIds: [String]?
     let listProjection: String?
     /// Read state for the board user. The inbox's "unread" tab is exactly
     /// the rows where this is true.

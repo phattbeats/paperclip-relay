@@ -443,6 +443,54 @@ final class BoardService {
         try await client.get(companyPath("/observability/status", auth.companyId), auth: auth, as: ObservabilityStatus.self)
     }
 
+    /// Every label the company has defined.
+    func companyLabels(auth: Credentials) async throws -> [CompanyLabel] {
+        try await client.get(companyPath("/labels", auth.companyId), auth: auth, as: [CompanyLabel].self)
+    }
+
+    /// Replace an issue's labels. The board takes the whole set, so the
+    /// phone sends the complete selection rather than a delta.
+    func updateIssueLabels(issueId: String, labelIds: [String], auth: Credentials) async throws -> Issue {
+        try await client.send("PATCH", "/api/issues/\(issueId)",
+                              body: ["labelIds": labelIds],
+                              auth: auth,
+                              as: Issue.self)
+    }
+
+    /// Put an issue in someone's hands, or take it out of them.
+    func updateIssueAssignee(issueId: String, agentId: String?, auth: Credentials) async throws -> Issue {
+        var body: [String: Any] = [:]
+        if let agentId, !agentId.isEmpty {
+            body["assigneeAgentId"] = agentId
+        } else {
+            body["assigneeAgentId"] = NSNull()
+        }
+        return try await client.send("PATCH", "/api/issues/\(issueId)", body: body, auth: auth, as: Issue.self)
+    }
+
+    /// Move an issue into a project, or out of all of them.
+    func updateIssueProject(issueId: String, projectId: String?, auth: Credentials) async throws -> Issue {
+        var body: [String: Any] = [:]
+        if let projectId, !projectId.isEmpty {
+            body["projectId"] = projectId
+        } else {
+            body["projectId"] = NSNull()
+        }
+        return try await client.send("PATCH", "/api/issues/\(issueId)", body: body, auth: auth, as: Issue.self)
+    }
+
+    /// Ping an agent so it picks its work up now. This is a real wake: it
+    /// starts a run, so the phone treats it as an action, not a toggle.
+    func wakeAgent(id: String, reason: String, auth: Credentials) async throws {
+        let body: [String: Any] = [
+            "source": "on_demand",
+            "triggerDetail": "ping",
+            "reason": reason,
+            "forceFreshSession": false,
+        ]
+        try await client.send("POST", "/api/agents/\(id)/wakeup", body: body, auth: auth)
+    }
+
     /// The company-wide monthly ceiling. This is policy with teeth, so the
     /// phone confirms before it writes.
     func setMonthlyBudget(cents: Int, auth: Credentials) async throws {

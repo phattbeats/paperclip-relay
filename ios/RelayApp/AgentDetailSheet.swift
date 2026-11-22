@@ -84,10 +84,14 @@ struct AgentDetailSheet: View {
                             Task { await pause() }
                         }
                     }
+                    Button("Wake now") {
+                        Task { await wake() }
+                    }
+                    .disabled(working)
                 } header: {
                     Text("Control")
                 } footer: {
-                    Text("Pausing holds the agent without removing it from the board.")
+                    Text("Pausing holds the agent without removing it from the board. Waking starts a run, which spends model tokens.")
                 }
 
                 Section("Model") {
@@ -226,6 +230,22 @@ struct AgentDetailSheet: View {
             await load()
         } catch {
             errorMessage = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// Ping the agent so it picks up whatever is waiting on it. This is a
+    /// real run, not a status toggle, so it says so on the button.
+    private func wake() async {
+        working = true
+        defer { working = false }
+        do {
+            try await BoardService().wakeAgent(id: agent.id, reason: "Woken from the phone", auth: session.credentials)
+            board.bannerIsError = false
+            board.banner = "\(agent.name) woken."
+            await load()
+        } catch {
+            board.bannerIsError = true
+            board.banner = OpsFailure.message(error)
         }
     }
 

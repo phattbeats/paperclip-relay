@@ -18,6 +18,9 @@ struct IssueDetailView: View {
     @State private var attachments: [Attachment] = []
     @State private var interactions: [Interaction] = []
     @State private var answering: Interaction?
+    @State private var showingAssignee = false
+    @State private var showingProject = false
+    @State private var showingLabels = false
 
     private let service = BoardService()
 
@@ -87,12 +90,29 @@ struct IssueDetailView: View {
                 }
 
                 Section("Details") {
-                    detailRow("Assignee", board.agentById[issue.assigneeAgentId ?? ""]?.name ?? "Unassigned")
-                    if let project = board.projectById[issue.projectId ?? ""] {
-                        detailRow("Project", project.name)
+                    Button { showingAssignee = true } label: {
+                        detailRow("Assignee", assigneeName)
                     }
+                    .buttonStyle(.plain)
+                    Button { showingProject = true } label: {
+                        detailRow("Project", projectName)
+                    }
+                    .buttonStyle(.plain)
                     detailRow("Created", Format.relative(issue.createdAt))
                     detailRow("Updated", Format.relative(issue.updatedAt))
+                }
+
+                Section("Labels") {
+                    if issueLabelNames.isEmpty {
+                        Text("No labels on this issue.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(issueLabelNames, id: \.self) { name in
+                            Label(name).font(.callout)
+                        }
+                    }
+                    Button("Manage labels…") { showingLabels = true }
                 }
 
                 Section {
@@ -172,6 +192,35 @@ struct IssueDetailView: View {
                 await load()
             }
         }
+        .sheet(isPresented: $showingAssignee) {
+            IssueAssigneeSheet(currentAgentId: issue?.assigneeAgentId) { agentId in
+                await applyAssignee(agentId)
+            }
+        }
+        .sheet(isPresented: $showingProject) {
+            IssueProjectSheet(currentProjectId: issue?.projectId) { projectId in
+                await applyProject(projectId)
+            }
+        }
+        .sheet(isPresented: $showingLabels) {
+            IssueLabelsSheet(currentLabelIds: issue?.labelIds ?? []) { labelIds in
+                await applyLabels(labelIds)
+            }
+        }
+    }
+
+    private var assigneeName: String {
+        guard let id = issue?.assigneeAgentId else { return "Unassigned" }
+        return board.agentById[id]?.name ?? "Unassigned"
+    }
+
+    private var projectName: String {
+        guard let id = issue?.projectId else { return "No project" }
+        return board.projectById[id]?.name ?? "No project"
+    }
+
+    private var issueLabelNames: [String] {
+        (issue?.labels ?? []).compactMap { $0.name }
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -220,6 +269,50 @@ struct IssueDetailView: View {
         } catch {
             board.bannerIsError = true
             board.banner = (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func applyAssignee(_ agentId: String?) async {
+        do {
+            issue = try await service.updateIssueAssignee(issueId: issueID, agentId: agentId, auth: session.credentials)
+            await refreshIssue()
+            board.bannerIsError = false
+            board.banner = agentId.map { "Assigned to \(board.agentById[$0]?.name ?? "an agent")." } ?? "Assignee cleared."
+        } catch {
+            board.bannerIsError = true
+            board.banner = OpsFailure.message(error)
+        }
+    }
+
+    private func applyProject(_ projectId: String?) async {
+        do {
+            issue = try await service.updateIssueProject(issueId: issueID, projectId: projectId, auth: session.credentials)
+            await refreshIssue()
+            board.bannerIsError = false
+            board.banner = projectId.map { "Moved to \(board.projectById[$0]?.name ?? "a project")." } ?? "Removed from its project."
+        } catch {
+            board.bannerIsError = true
+            board.banner = OpsFailure.message(error)
+        }
+    }
+
+    private func applyLabels(_ labelIds: [String]) async {
+        do {
+            issue = try await service.updateIssueLabels(issueId: issueID, labelIds: labelIds, auth: session.credentials)
+            await refreshIssue()
+            board.bannerIsError = false
+            board.banner = labelIds.isEmpty ? "Labels cleared." : "Labels updated."
+        } catch {
+            board.bannerIsError = true
+            board.banner = OpsFailure.message(error)
+        }
+    }
+
+    /// The board owns the truth about an issue, so after a write the phone
+    /// re-reads it rather than trusting what it sent.
+    private func refreshIssue() async {
+        if let fresh = try? await service.issue(id: issueID, auth: session.credentials) {
+            issue = fresh
         }
     }
 

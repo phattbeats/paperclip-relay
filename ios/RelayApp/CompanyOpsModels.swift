@@ -337,3 +337,11 @@ enum OpsFailure {
         (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
     }
 }
+
+/// A label the company has defined.
+struct CompanyLabel: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String?
+    let name: String
+    let color: String?
+}
