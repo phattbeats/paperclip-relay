@@ -19,3 +19,6 @@ Packages/
 *.key
 *.token
 secrets/
+
+# Local CI artifact downloads (never committed)
+.artifacts/

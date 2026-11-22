@@ -3,9 +3,29 @@ import SwiftUI
 /// The phone's company cockpit. It deliberately answers the operator's
 /// questions (health, spend, work, automations) instead of cloning every
 /// editor from the web app.
+/// The console is split by the operator's question, not by the entity it
+/// lists: pulse, spend, people, log, health. Each pane reads live board
+/// data and owns its own failures.
+enum ConsolePane: String, CaseIterable, Identifiable {
+    case pulse, spend, people, timeline, health
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pulse: return "Pulse"
+        case .spend: return "Spend"
+        case .people: return "People"
+        case .timeline: return "Log"
+        case .health: return "Health"
+        }
+    }
+}
+
 struct ConsoleView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var board: BoardStore
+    @State private var pane: ConsolePane = ConsoleView.initialPane
 
     @State private var dashboard: CompanyDashboard?
     @State private var goals: [CompanyGoal] = []
@@ -21,7 +41,59 @@ struct ConsoleView: View {
 
     var body: some View {
         NavigationView {
-            Group {
+            VStack(spacing: 0) {
+                Picker("Console", selection: $pane) {
+                    ForEach(ConsolePane.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                Group {
+                    switch pane {
+                    case .pulse: pulsePane
+                    case .spend: CompanySpendView()
+                    case .people: CompanyPeopleView()
+                    case .timeline: CompanyTimelineView()
+                    case .health: CompanyHealthView()
+                    }
+                }
+            }
+            .navigationTitle("Company")
+            .toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
+                        .accessibilityLabel("Search company")
+                    Button { showNewIssue = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("New issue")
+                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                }
+            }
+            .task { await load() }
+            .sheet(isPresented: $showSearch) { CompanySearchView() }
+            .sheet(isPresented: $showNewIssue) { NewCompanyIssueView() }
+            .sheet(isPresented: $showSettings) { SettingsView() }
+            .sheet(item: $selectedRoutine) { routine in
+                RoutineDetailView(routine: routine, onChanged: { Task { await load() } })
+            }
+            .relayBannerInset()
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    /// The pane the console opens on. The screenshot run can pick one so
+    /// every pane gets captured; a human always starts on the pulse.
+    private static var initialPane: ConsolePane {
+        guard let raw = SessionStore.launchConsolePane?.lowercased(),
+              let pane = ConsolePane(rawValue: raw) else { return .pulse }
+        return pane
+    }
+
+    /// The pulse pane: what the company looks like right now.
+    private var pulsePane: some View {
+        Group {
                 if loading && dashboard == nil {
                     ProgressView("Loading company pulse…")
                 } else {
@@ -114,28 +186,7 @@ struct ConsoleView: View {
                     }
                     .refreshable { await load() }
                 }
-            }
-            .navigationTitle("Company")
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
-                        .accessibilityLabel("Search company")
-                    Button { showNewIssue = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("New issue")
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
-                }
-            }
-            .task { await load() }
-            .sheet(isPresented: $showSearch) { CompanySearchView() }
-            .sheet(isPresented: $showNewIssue) { NewCompanyIssueView() }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(item: $selectedRoutine) { routine in
-                RoutineDetailView(routine: routine, onChanged: { Task { await load() } })
-            }
-            .relayBannerInset()
         }
-        .navigationViewStyle(.stack)
     }
 
     private func load() async {

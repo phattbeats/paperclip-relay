@@ -392,4 +392,70 @@ final class BoardService {
     func signIn(baseURL: String, email: String, password: String) async throws -> String {
         try await client.signIn(baseURL: baseURL, email: email, password: password)
     }
+
+    // MARK: - Company operations console
+    //
+    // The console panes answer the operator's standing questions: what did
+    // this month cost, who has access, what happened, and is the fleet
+    // healthy. Every route below was probed live against the deployed
+    // instance with a board credential before it was written here.
+
+    func spendSummary(auth: Credentials) async throws -> SpendSummary {
+        try await client.get(companyPath("/costs/summary", auth.companyId), auth: auth, as: SpendSummary.self)
+    }
+
+    func spendByAgent(auth: Credentials) async throws -> [SpendByAgent] {
+        try await client.get(companyPath("/costs/by-agent", auth.companyId), auth: auth, as: [SpendByAgent].self)
+    }
+
+    func spendByProject(auth: Credentials) async throws -> [SpendByProject] {
+        try await client.get(companyPath("/costs/by-project", auth.companyId), auth: auth, as: [SpendByProject].self)
+    }
+
+    func spendByProvider(auth: Credentials) async throws -> [SpendByProvider] {
+        try await client.get(companyPath("/costs/by-provider", auth.companyId), auth: auth, as: [SpendByProvider].self)
+    }
+
+    func spendWindows(auth: Credentials) async throws -> [WindowSpend] {
+        try await client.get(companyPath("/costs/window-spend", auth.companyId), auth: auth, as: [WindowSpend].self)
+    }
+
+    func budgets(auth: Credentials) async throws -> BudgetsOverview {
+        try await client.get(companyPath("/budgets/overview", auth.companyId), auth: auth, as: BudgetsOverview.self)
+    }
+
+    func quotaWindows(auth: Credentials) async throws -> [QuotaReport] {
+        try await client.get(companyPath("/costs/quota-windows", auth.companyId), auth: auth, as: [QuotaReport].self)
+    }
+
+    func members(auth: Credentials) async throws -> CompanyMembers {
+        try await client.get(companyPath("/members", auth.companyId), auth: auth, as: CompanyMembers.self)
+    }
+
+    func timeline(auth: Credentials, limit: Int = 80) async throws -> CompanyTimeline {
+        try await client.get(companyPath("/timeline", auth.companyId),
+                            query: [URLQueryItem(name: "limit", value: String(limit))],
+                            auth: auth,
+                            as: CompanyTimeline.self)
+    }
+
+    func observability(auth: Credentials) async throws -> ObservabilityStatus {
+        try await client.get(companyPath("/observability/status", auth.companyId), auth: auth, as: ObservabilityStatus.self)
+    }
+
+    /// The company-wide monthly ceiling. This is policy with teeth, so the
+    /// phone confirms before it writes.
+    func setMonthlyBudget(cents: Int, auth: Credentials) async throws {
+        try await client.send("PATCH", companyPath("/budgets", auth.companyId),
+                              body: ["budgetMonthlyCents": cents],
+                              auth: auth)
+    }
+
+    /// A member's role decides what they can do on the board. The phone
+    /// confirms the new role before it sends it.
+    func updateMemberRole(memberId: String, role: String, auth: Credentials) async throws {
+        try await client.send("PATCH", companyPath("/members/\(memberId)", auth.companyId),
+                              body: ["membershipRole": role],
+                              auth: auth)
+    }
 }

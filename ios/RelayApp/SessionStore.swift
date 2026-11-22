@@ -119,6 +119,15 @@ final class SessionStore: ObservableObject {
             ?? ""
     }
 
+    /// Which console pane to open on launch. The screenshot run picks one so
+    /// every pane of the operator console gets captured. A human always
+    /// starts on the pulse pane.
+    static var launchConsolePane: String? {
+        ProcessInfo.processInfo.environment["RELAY_INITIAL_CONSOLE_PANE"]
+            ?? UserDefaults.standard.string(forKey: "relayInitialConsolePane")
+            ?? Self.bootstrapConfig()?["initialConsolePane"]
+    }
+
     /// Read `relay-config.json` from the app's Documents directory.
     ///
     /// Keys: `baseURL`, `companyId`, `boardToken`, `initialTab`, and the

@@ -33,11 +33,19 @@ struct CompanyDashboard: Codable, Hashable {
         var id: String { date }
     }
 
+    struct Budgets: Codable, Hashable {
+        let activeIncidents: Int?
+        let pendingApprovals: Int?
+        let pausedAgents: Int?
+        let pausedProjects: Int?
+    }
+
     let companyId: String
     let agents: AgentCounts
     let tasks: TaskCounts
     let costs: Costs
     let pendingApprovals: Int
+    let budgets: Budgets?
     let runActivity: [RunActivity]
 }
 
