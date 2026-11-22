@@ -328,8 +328,12 @@ enum OpsFormat {
 }
 
 /// One place to turn a thrown error into text a phone can show.
+///
+/// This does the formatting itself rather than leaning on BoardStore: that
+/// type is main-actor isolated, and these panes read errors from async
+/// work that is not on the main actor.
 enum OpsFailure {
     static func message(_ error: Error) -> String {
-        BoardStore.message(for: error)
+        (error as? RelayAPIError)?.errorDescription ?? error.localizedDescription
     }
 }
