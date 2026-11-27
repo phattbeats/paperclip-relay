@@ -556,8 +556,15 @@ struct CompanyTimelineView: View {
         do {
             timeline = try await BoardService().timeline(auth: session.credentials)
             error = nil
-            if let runId = SessionStore.launchRun, inspectedRun == nil {
-                inspectedRun = RunInspectorTarget(runId: runId, issueIdentifier: nil)
+            if let launchRun = SessionStore.launchRun, inspectedRun == nil {
+                // Screenshot automation asks for `latest` rather than scraping
+                // the board independently. It exercises the same timeline
+                // data path a phone uses and avoids a second CDN-sensitive call.
+                if launchRun == "latest", let span = timeline?.spans.first(where: { $0.runId != nil }), let runId = span.runId {
+                    inspectedRun = RunInspectorTarget(runId: runId, issueIdentifier: span.issueIdentifier)
+                } else if launchRun != "latest" {
+                    inspectedRun = RunInspectorTarget(runId: launchRun, issueIdentifier: nil)
+                }
             }
         } catch let loadError {
             error = OpsFailure.message(loadError)

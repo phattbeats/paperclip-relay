@@ -260,35 +260,23 @@ jobs:
             ls -la screenshots/
           done
 
-          # The Run Inspector is the nightly-parity read surface: a timeline
-          # row can now open its live status, tool, cost, event stream and
-          # bounded log tail. Pick the most recent run from the live board
-          # instead of hard-coding an expiring run id in the workflow.
-          # Keep this identical to the app's established board request signature.
-          # The CDN rejects an invented iOS 26 Safari string before Paperclip sees it.
-          RUN_ID=$(curl -fsS \
-            -H "Authorization: Bearer $RELAY_BOARD_TOKEN" \
-            -H "Accept: application/json" \
-            -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Mobile/15E148 Safari/604.1" \
-            "$RELAY_BASE_URL/api/companies/$RELAY_COMPANY_ID/heartbeat-runs?limit=1" \
-            | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(rows[0]["id"] if rows else "")')
-          if [ -n "$RUN_ID" ]; then
-            xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
-            printf '{"baseURL":"%s","companyId":"%s","boardToken":"%s","initialTab":"console","initialConsolePane":"timeline","initialRun":"%s"}' \
-              "$RELAY_BASE_URL" "$RELAY_COMPANY_ID" "$RELAY_BOARD_TOKEN" "$RUN_ID" \
-              > "$CONTAINER/Documents/relay-config.json"
-            SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
-            SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
-            SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
-            SIMCTL_CHILD_RELAY_INITIAL_TAB="console" \
-            SIMCTL_CHILD_RELAY_INITIAL_CONSOLE_PANE="timeline" \
-            SIMCTL_CHILD_RELAY_INITIAL_RUN="$RUN_ID" \
-              xcrun simctl launch "$UDID" tech.phatt.papercliprelay
-            sleep 35
-            xcrun simctl io "$UDID" screenshot "screenshots/run-inspector.png" || echo "capture failed: run inspector"
-          else
-            echo "::warning::no run available for Run Inspector capture"
-          fi
+          # The Run Inspector is the nightly-parity read surface. `latest`
+          # asks the app to open the first run from its own timeline response,
+          # so the capture proves the real phone data path rather than a
+          # separate CDN-sensitive curl lookup.
+          xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
+          printf '{"baseURL":"%s","companyId":"%s","boardToken":"%s","initialTab":"console","initialConsolePane":"timeline","initialRun":"latest"}' \
+            "$RELAY_BASE_URL" "$RELAY_COMPANY_ID" "$RELAY_BOARD_TOKEN" \
+            > "$CONTAINER/Documents/relay-config.json"
+          SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
+          SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
+          SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
+          SIMCTL_CHILD_RELAY_INITIAL_TAB="console" \
+          SIMCTL_CHILD_RELAY_INITIAL_CONSOLE_PANE="timeline" \
+          SIMCTL_CHILD_RELAY_INITIAL_RUN="latest" \
+            xcrun simctl launch "$UDID" tech.phatt.papercliprelay
+          sleep 35
+          xcrun simctl io "$UDID" screenshot "screenshots/run-inspector.png" || echo "capture failed: run inspector"
 
           # The issue detail screen with a toast on it. The toast used to be
           # a window overlay that painted over the navigation bar and the
