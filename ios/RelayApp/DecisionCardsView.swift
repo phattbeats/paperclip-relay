@@ -98,10 +98,10 @@ struct DecisionCardsView: View {
                 }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.25)))
+        .relayGlassCard(radius: RelayDesign.compactRadius)
+        .overlay(RoundedRectangle(cornerRadius: RelayDesign.compactRadius, style: .continuous).stroke(Color.orange.opacity(0.28)))
     }
 
     @ViewBuilder
@@ -222,10 +222,10 @@ struct DecisionCardsView: View {
                 }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.blue.opacity(0.25)))
+        .relayGlassCard(radius: RelayDesign.compactRadius)
+        .overlay(RoundedRectangle(cornerRadius: RelayDesign.compactRadius, style: .continuous).stroke(Color.blue.opacity(0.28)))
     }
 
     private func run(_ verb: DecisionVerb, _ interaction: PendingInteraction) async {

@@ -128,10 +128,19 @@ final class SessionStore: ObservableObject {
             ?? Self.bootstrapConfig()?["initialConsolePane"]
     }
 
+    /// A run to open on launch. The screenshot lane uses it to capture the
+    /// inspector without trying to automate a tap through a live timeline.
+    static var launchRun: String? {
+        let value = ProcessInfo.processInfo.environment["RELAY_INITIAL_RUN"]
+            ?? Self.bootstrapConfig()?["initialRun"]
+            ?? ""
+        return value.isEmpty ? nil : value
+    }
+
     /// Read `relay-config.json` from the app's Documents directory.
     ///
     /// Keys: `baseURL`, `companyId`, `boardToken`, `initialTab`, and the
-    /// optional `initialIssue` / `banner` used by the screenshot run. It is
+    /// optional `initialIssue` / `initialRun` / `banner` used by the screenshot run. It is
     /// a bootstrap path for automated runs, not a settings store — the app
     /// never writes it, and a real install never has it.
     private static func bootstrapConfig() -> [String: String]? {

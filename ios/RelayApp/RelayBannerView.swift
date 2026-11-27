@@ -28,8 +28,8 @@ struct RelayBannerView: View {
                 .buttonStyle(.plain)
             }
             .padding(12)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            .relayGlassCard(radius: RelayDesign.compactRadius)
+            .shadow(color: .black.opacity(0.10), radius: 10, y: 3)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .transition(.move(edge: .top).combined(with: .opacity))

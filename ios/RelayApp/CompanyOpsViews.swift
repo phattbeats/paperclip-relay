@@ -512,6 +512,7 @@ struct CompanyTimelineView: View {
     @State private var mode = "runs"
     @State private var error: String?
     @State private var loading = false
+    @State private var inspectedRun: RunInspectorTarget?
 
     var body: some View {
         List {
@@ -523,7 +524,15 @@ struct CompanyTimelineView: View {
                 .pickerStyle(.segmented)
             }
 
-            TimelineRunsSection(mode: mode, spans: timeline?.spans ?? [], actors: timeline?.actors ?? [], loading: loading)
+            TimelineRunsSection(mode: mode,
+                                spans: timeline?.spans ?? [],
+                                actors: timeline?.actors ?? [],
+                                loading: loading,
+                                onInspect: { span in
+                                    guard let runId = span.runId else { return }
+                                    inspectedRun = RunInspectorTarget(runId: runId,
+                                                                       issueIdentifier: span.issueIdentifier)
+                                })
             TimelineEventsSection(mode: mode, events: timeline?.events ?? [], actors: timeline?.actors ?? [], loading: loading)
             TimelinePaginationSection(pagination: timeline?.pagination)
             OpsErrorSection(error: error)
@@ -535,6 +544,9 @@ struct CompanyTimelineView: View {
         }
         .refreshable { await load() }
         .task { await load() }
+        .sheet(item: $inspectedRun) { target in
+            RunInspectorView(runId: target.runId, issueIdentifier: target.issueIdentifier)
+        }
     }
 
     private func load() async {
@@ -544,6 +556,9 @@ struct CompanyTimelineView: View {
         do {
             timeline = try await BoardService().timeline(auth: session.credentials)
             error = nil
+            if let runId = SessionStore.launchRun, inspectedRun == nil {
+                inspectedRun = RunInspectorTarget(runId: runId, issueIdentifier: nil)
+            }
         } catch let loadError {
             error = OpsFailure.message(loadError)
         }
@@ -555,6 +570,7 @@ private struct TimelineRunsSection: View {
     let spans: [CompanyTimeline.Span]
     let actors: [CompanyTimeline.Actor]
     let loading: Bool
+    let onInspect: (CompanyTimeline.Span) -> Void
 
     var body: some View {
         if mode == "runs" {
@@ -563,7 +579,14 @@ private struct TimelineRunsSection: View {
             } else {
                 ForEach(spans.sorted { ($0.start ?? "") > ($1.start ?? "") }.prefix(80)) { span in
                     Section {
-                        TimelineRunRow(span: span, actorName: OpsActors.name(span.actorId, actors: actors))
+                        if span.runId != nil {
+                            Button { onInspect(span) } label: {
+                                TimelineRunRow(span: span, actorName: OpsActors.name(span.actorId, actors: actors))
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            TimelineRunRow(span: span, actorName: OpsActors.name(span.actorId, actors: actors))
+                        }
                     }
                 }
             }

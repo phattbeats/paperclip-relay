@@ -100,6 +100,27 @@ struct MainTabs: View {
     }
 
     var body: some View {
+        modernTabs
+    }
+
+    /// iOS 26's system TabView has the right Liquid Glass treatment without
+    /// wrapping the tab bar in a custom fake. The only explicit behavior we
+    /// add is minimization while a dense board list scrolls; iOS 16–25 keep
+    /// the stable, always-visible tab bar.
+    @ViewBuilder
+    private var modernTabs: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            tabContents.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            tabContents
+        }
+        #else
+        tabContents
+        #endif
+    }
+
+    private var tabContents: some View {
         TabView(selection: $selection) {
             IssuesView()
                 .tabItem { Label("Issues", systemImage: "list.bullet.rectangle") }
@@ -122,8 +143,8 @@ struct MainTabs: View {
                 .tabItem { Label("Approvals", systemImage: "checkmark.seal") }
                 .badge(pendingApprovalCount)
                 .tag("approvals")
-
         }
+        .tint(.accentColor)
     }
 
     /// The number of things waiting on the board user, as the board itself

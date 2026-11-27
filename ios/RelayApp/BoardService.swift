@@ -506,4 +506,54 @@ final class BoardService {
                               body: ["membershipRole": role],
                               auth: auth)
     }
+
+    // MARK: - Run inspector
+    //
+    // The console could say that a run happened, but not what the agent was
+    // doing inside it. These routes answer that, and they are the reason
+    // the phone can now answer "what is my fleet actually doing" rather
+    // than only "what is its state".
+
+    /// A run's full record: phase, current tool, cost, tokens, errors and
+    /// the board's own liveness reasoning.
+    ///
+    /// The payload is large — around 300 KB on the wire for a live run —
+    /// so it is fetched only when a run is opened, never for a list.
+    func run(id: String, auth: Credentials) async throws -> RunRecord {
+        try await client.get("/api/heartbeat-runs/\(id)", auth: auth, as: RunRecord.self)
+    }
+
+    /// The run's event stream.
+    ///
+    /// The board's events carry a `payload` object the phone does not
+    /// render, and that object can run to tens of kilobytes for a single
+    /// event. The limit keeps a run's event list bounded.
+    func runEvents(id: String, limit: Int = 60, auth: Credentials) async throws -> [RunEvent] {
+        try await client.get("/api/heartbeat-runs/\(id)/events",
+                             query: [URLQueryItem(name: "limit", value: String(limit))],
+                             auth: auth,
+                             as: [RunEvent].self)
+    }
+
+    /// The tail of a run's log.
+    ///
+    /// `limitBytes` bounds the download; the board returns the most recent
+    /// bytes, which is the part an operator reading a phone wants.
+    func runLog(id: String, limitBytes: Int = 16_000, auth: Credentials) async throws -> RunLog {
+        try await client.get("/api/heartbeat-runs/\(id)/log",
+                             query: [URLQueryItem(name: "limitBytes", value: String(limitBytes))],
+                             auth: auth,
+                             as: RunLog.self)
+    }
+
+    /// The issues a run touched.
+    func runIssues(id: String, auth: Credentials) async throws -> [RunIssueLink] {
+        try await client.get("/api/heartbeat-runs/\(id)/issues", auth: auth, as: [RunIssueLink].self)
+    }
+
+    /// The runs of one issue, newest first.
+    func issueRuns(issueId: String, auth: Credentials) async throws -> [IssueRun] {
+        try await client.get("/api/issues/\(issueId)/runs", auth: auth, as: [IssueRun].self)
+    }
+
 }

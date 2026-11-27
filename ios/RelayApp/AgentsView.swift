@@ -6,6 +6,7 @@ struct AgentsView: View {
 
     /// The agent whose detail sheet is open.
     @State private var selected: Agent?
+    @State private var inspectedRun: RunInspectorTarget?
 
     var body: some View {
         NavigationView {
@@ -21,7 +22,12 @@ struct AgentsView: View {
                         if !board.liveRuns.isEmpty {
                             Section("Running now") {
                                 ForEach(board.liveRuns.prefix(8)) { run in
-                                    LiveRunRow(run: run)
+                                    Button {
+                                        inspectedRun = RunInspectorTarget(runId: run.id, issueIdentifier: nil)
+                                    } label: {
+                                        LiveRunRow(run: run)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -48,6 +54,9 @@ struct AgentsView: View {
         .navigationViewStyle(.stack)
         .sheet(item: $selected) { agent in
             AgentDetailSheet(agent: agent)
+        }
+        .sheet(item: $inspectedRun) { target in
+            RunInspectorView(runId: target.runId, issueIdentifier: target.issueIdentifier)
         }
     }
 

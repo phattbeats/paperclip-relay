@@ -28,12 +28,13 @@ on:
 
 jobs:
   build-ios:
-    # macos-15 ships Xcode 16, which understands the project file format
-    # (77) that current XcodeGen emits. The macos-14 image's Xcode 15.4
-    # refuses to open it: "the project cannot be opened because it is in a
-    # future Xcode project file format (77)".
-    runs-on: macos-15
+    # The modern lane compiles against Xcode 26 / iOS 26. The deployment
+    # target remains iOS 16.0 — new APIs are availability-gated in source.
+    # GitHub's public macos-26 image ships Xcode 26.6 and iOS 26.5 SDK.
+    runs-on: macos-26
     timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Checkout
@@ -142,12 +143,14 @@ jobs:
           retention-days: 14
 
   screenshots:
-    # Screenshots of the three tabs, taken on an iPhone simulator against the
-    # live board. The board key comes from the repository secret, never from
-    # the repository itself.
-    runs-on: macos-15
+    # Modern screenshots, taken on an iOS 26 simulator against the live
+    # board. The board key comes from the repository secret, never from the
+    # repository itself.
+    runs-on: macos-26
     needs: build-ios
     timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     if: ${{ success() }}
 
     steps:
@@ -257,6 +260,33 @@ jobs:
             ls -la screenshots/
           done
 
+          # The Run Inspector is the nightly-parity read surface: a timeline
+          # row can now open its live status, tool, cost, event stream and
+          # bounded log tail. Pick the most recent run from the live board
+          # instead of hard-coding an expiring run id in the workflow.
+          RUN_ID=$(curl -fsS \
+            -H "Authorization: Bearer $RELAY_BOARD_TOKEN" \
+            -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15" \
+            "$RELAY_BASE_URL/api/companies/$RELAY_COMPANY_ID/heartbeat-runs?limit=1" \
+            | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(rows[0]["id"] if rows else "")')
+          if [ -n "$RUN_ID" ]; then
+            xcrun simctl terminate "$UDID" tech.phatt.papercliprelay >/dev/null 2>&1 || true
+            printf '{"baseURL":"%s","companyId":"%s","boardToken":"%s","initialTab":"console","initialConsolePane":"timeline","initialRun":"%s"}' \
+              "$RELAY_BASE_URL" "$RELAY_COMPANY_ID" "$RELAY_BOARD_TOKEN" "$RUN_ID" \
+              > "$CONTAINER/Documents/relay-config.json"
+            SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
+            SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
+            SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
+            SIMCTL_CHILD_RELAY_INITIAL_TAB="console" \
+            SIMCTL_CHILD_RELAY_INITIAL_CONSOLE_PANE="timeline" \
+            SIMCTL_CHILD_RELAY_INITIAL_RUN="$RUN_ID" \
+              xcrun simctl launch "$UDID" tech.phatt.papercliprelay
+            sleep 35
+            xcrun simctl io "$UDID" screenshot "screenshots/run-inspector.png" || echo "capture failed: run inspector"
+          else
+            echo "::warning::no run available for Run Inspector capture"
+          fi
+
           # The issue detail screen with a toast on it. The toast used to be
           # a window overlay that painted over the navigation bar and the
           # controls underneath it (PHA-5156, reported from the phone on
@@ -285,4 +315,97 @@ jobs:
           name: paperclip-relay-ios-screenshots
           path: screenshots
           if-no-files-found: warn
+          retention-days: 30
+
+  screenshots-ios16-fallback:
+    # The fallback lane deliberately uses an iOS 18 simulator. `#available(iOS
+    # 26, *)` is false there, so this proves the exact 16–25 material/tab
+    # fallback path while keeping the deployment target verified at 16.0.
+    # macos-15 currently carries both the iOS 18 runtime and Xcode 26.3.
+    runs-on: macos-15
+    needs: build-ios
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode and fallback SDK versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-path
+          xcrun simctl list runtimes | grep -E 'iOS 18' | head -3
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build the iOS 16-compatible simulator app
+        run: |
+          cd ios
+          xcodegen generate
+          mkdir -p build
+          set -o pipefail
+          xcodebuild \
+            -project Relay.xcodeproj \
+            -scheme Relay \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedDataFallback \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_IDENTITY="-" \
+            build | tee build/xcodebuild-fallback.log
+
+      - name: Boot an iOS 18 simulator
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          for runtime, devices in data["devices"].items():
+              if "iOS-18" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("no iOS 18 iPhone simulator available")
+          ')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl shutdown all >/dev/null 2>&1 || true
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Capture the iOS 16–25 fallback
+        env:
+          RELAY_BOARD_TOKEN: ${{ secrets.RELAY_BOARD_TOKEN }}
+          RELAY_COMPANY_ID: ${{ secrets.RELAY_COMPANY_ID }}
+          RELAY_BASE_URL: https://paperclip.phatt.vip
+        run: |
+          set -euo pipefail
+          mkdir -p screenshots-fallback
+          APP="ios/build/DerivedDataFallback/Build/Products/Debug-iphonesimulator/Relay.app"
+          xcrun simctl install "$UDID" "$APP"
+          CONTAINER=$(xcrun simctl get_app_container "$UDID" tech.phatt.papercliprelay data)
+          mkdir -p "$CONTAINER/Documents"
+          printf '{"baseURL":"%s","companyId":"%s","boardToken":"%s","initialTab":"console"}' \
+            "$RELAY_BASE_URL" "$RELAY_COMPANY_ID" "$RELAY_BOARD_TOKEN" \
+            > "$CONTAINER/Documents/relay-config.json"
+          SIMCTL_CHILD_RELAY_BASE_URL="$RELAY_BASE_URL" \
+          SIMCTL_CHILD_RELAY_COMPANY_ID="$RELAY_COMPANY_ID" \
+          SIMCTL_CHILD_RELAY_BOARD_TOKEN="$RELAY_BOARD_TOKEN" \
+          SIMCTL_CHILD_RELAY_INITIAL_TAB="console" \
+            xcrun simctl launch "$UDID" tech.phatt.papercliprelay
+          sleep 35
+          xcrun simctl io "$UDID" screenshot screenshots-fallback/console-ios16-fallback.png
+
+      - name: Upload the fallback screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-relay-ios16-fallback-screenshot
+          path: screenshots-fallback
+          if-no-files-found: error
           retention-days: 30
