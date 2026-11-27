@@ -560,7 +560,7 @@ struct CompanyTimelineView: View {
                 // Screenshot automation asks for `latest` rather than scraping
                 // the board independently. It exercises the same timeline
                 // data path a phone uses and avoids a second CDN-sensitive call.
-                if launchRun == "latest", let span = timeline?.spans.first(where: { $0.runId != nil }), let runId = span.runId {
+                if launchRun == "latest", let span = timeline?.spans?.first(where: { $0.runId != nil }), let runId = span.runId {
                     inspectedRun = RunInspectorTarget(runId: runId, issueIdentifier: span.issueIdentifier)
                 } else if launchRun != "latest" {
                     inspectedRun = RunInspectorTarget(runId: launchRun, issueIdentifier: nil)
