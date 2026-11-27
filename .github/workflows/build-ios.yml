@@ -264,9 +264,12 @@ jobs:
           # row can now open its live status, tool, cost, event stream and
           # bounded log tail. Pick the most recent run from the live board
           # instead of hard-coding an expiring run id in the workflow.
+          # Keep this identical to the app's established board request signature.
+          # The CDN rejects an invented iOS 26 Safari string before Paperclip sees it.
           RUN_ID=$(curl -fsS \
             -H "Authorization: Bearer $RELAY_BOARD_TOKEN" \
-            -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15" \
+            -H "Accept: application/json" \
+            -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Mobile/15E148 Safari/604.1" \
             "$RELAY_BASE_URL/api/companies/$RELAY_COMPANY_ID/heartbeat-runs?limit=1" \
             | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(rows[0]["id"] if rows else "")')
           if [ -n "$RUN_ID" ]; then
